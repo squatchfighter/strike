@@ -16,24 +16,36 @@
   #rotate { display: none; position: fixed; inset: 0; background: #0c1118; color: #fff0a0; align-items: center;
             justify-content: center; font: 16px ui-monospace, Menlo, monospace; letter-spacing: 2px; text-align: center; }
   @media (orientation: portrait) and (max-width: 600px) { #rotate { display: flex; } }
-  #mp, #place { position: fixed; inset: 0; background: rgba(6,8,12,0.82); display: flex; align-items: center; justify-content: center;
+  #mp, #place, #camp { position: fixed; inset: 0; background: rgba(6,8,12,0.82); display: flex; align-items: center; justify-content: center;
         font: 14px ui-monospace, Menlo, Consolas, monospace; color: #d8dcd4; z-index: 5; }
-  #mp[hidden], #place[hidden] { display: none; }
-  #mp .box, #place .box { width: min(92vw, 520px); max-height: 92vh; overflow: auto; background: #151a20; border: 2px solid #5c6a58; padding: 16px 18px; box-sizing: border-box; }
-  #mp h2, #place h2 { margin: 0 0 8px; font-size: 16px; letter-spacing: 2px; color: #fff0a0; }
-  #mp p, #place p { margin: 10px 0 6px; line-height: 1.4; }
+  #mp[hidden], #place[hidden], #camp[hidden] { display: none; }
+  #mp .box, #place .box, #camp .box { width: min(92vw, 520px); max-height: 92vh; overflow: auto; background: #151a20; border: 2px solid #5c6a58; padding: 16px 18px; box-sizing: border-box; }
+  #mp h2, #place h2, #camp h2 { margin: 0 0 8px; font-size: 16px; letter-spacing: 2px; color: #fff0a0; }
+  #mp p, #place p, #camp p { margin: 10px 0 6px; line-height: 1.4; }
   #mp textarea, #place textarea { width: 100%; box-sizing: border-box; background: #0c1014; color: #a0e0f0; border: 1px solid #44505a; font: 12px ui-monospace, Menlo, monospace; padding: 6px; word-break: break-all; resize: vertical; }
-  #mp button, #place button { background: #2c3a2a; color: #e8ecd8; border: 1px solid #7c8a6c; padding: 8px 14px; margin: 6px 8px 0 0; font: inherit; letter-spacing: 1px; cursor: pointer; }
-  #mp button:active, #place button:active { background: #44563e; }
-  #mp .row, #place .row { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0; }
-  #mp label, #place label { display: block; cursor: pointer; }
-  #mp label span, #place label span { display: block; margin-left: 24px; color: #8a948a; font-size: 12px; }
-  #mp .err, #place .err { color: #f0a070; min-height: 1.2em; }
+  #mp button, #place button, #camp button { background: #2c3a2a; color: #e8ecd8; border: 1px solid #7c8a6c; padding: 8px 14px; margin: 6px 8px 0 0; font: inherit; letter-spacing: 1px; cursor: pointer; }
+  #mp button:active, #place button:active, #camp button:active { background: #44563e; }
+  #mp .row, #place .row, #camp .row { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0; }
+  #mp label, #place label, #camp label { display: block; cursor: pointer; }
+  #mp label span, #place label span, #camp label span { display: block; margin-left: 24px; color: #8a948a; font-size: 12px; }
+  #mp .err, #place .err, #camp .err { color: #f0a070; min-height: 1.2em; }
   #place input, #place select { background: #0c1014; color: #a0e0f0; border: 1px solid #44505a; font: inherit; padding: 7px; }
   #place input { flex: 1; min-width: 0; }
   #place .hit { display: block; width: 100%; text-align: left; margin: 4px 0 0; font-size: 12px; }
   #place .fine { color: #8a948a; font-size: 11px; }
   #place-close { float: right; margin: 0 !important; padding: 2px 9px !important; }
+  #camp .box { width: min(94vw, 620px); }
+  #camp .maps { display: flex; flex-direction: column; gap: 4px; max-height: 58vh; overflow: auto; margin: 6px 0; }
+  #camp button.map { display: block; width: 100%; text-align: left; margin: 0; padding: 7px 10px; }
+  #camp button.map .n { display: inline-block; width: 2.2em; color: #a0e0f0; }
+  #camp button.map .tag { float: right; color: #fff0a0; }
+  #camp button.map .brief { color: #8a948a; font-size: 12px; margin-left: 2.2em; }
+  #camp button.map.cur { border-color: #fff0a0; }
+  #camp button.map.locked { opacity: 0.45; cursor: default; }
+  #camp .win { color: #fff0a0; font-size: 15px; }
+  #camp input { width: 100%; box-sizing: border-box; background: #0c1014; color: #a0e0f0; border: 1px solid #44505a; font: inherit; padding: 7px; margin: 3px 0 8px; }
+  #camp .fine { color: #8a948a; font-size: 11px; }
+  #camp-close { float: right; margin: 0 !important; padding: 2px 9px !important; }
   #mp-close { float: right; margin: 0 !important; padding: 2px 9px !important; }
 </style>
 </head>
@@ -42,6 +54,7 @@
 <div id="loading">LOADING</div>
 <div id="mp" hidden><div class="box"><button id="mp-close" onclick="closeMulti()">X</button><h2>TWO PLAYERS</h2><div id="mp-body"></div></div></div>
 <div id="place" hidden><div class="box"><button id="place-close" onclick="closePlace()">X</button><h2>REAL PLACE</h2><div id="place-body"></div></div></div>
+<div id="camp" hidden><div class="box"><button id="camp-close" onclick="closeMaps()">X</button><h2>CAMPAIGN</h2><div id="camp-body"></div></div></div>
 <div id="rotate">ROTATE YOUR PHONE<br>TO LANDSCAPE</div>
 <script>
 'use strict';
@@ -115,7 +128,12 @@ function makeFbm(seed, freq, octaves) {
   };
 }
 
-function generateWorld(seed, real) {
+// The free-play island, and the defaults every campaign map starts from (see src/maps.js for the campaign).
+const FREE_PLAY = { shape: 'island', size: 1, biome: 'classic', cities: [36, 28, 22], zones: 5, garrison: 2, patrols: 12, hills: 1, ridges: 0, rivers: 0, lakes: 0, forest: 1, waves: null };
+const GARRISON = [null, { aa: 2, tanks: 1, inf: 4 }, { aa: 3, tanks: 2, inf: 6 }, { aa: 3, tanks: 2, inf: 8 }, { aa: 4, tanks: 3, inf: 8 }, { aa: 4, tanks: 3, inf: 10 }];
+const BIOME_T = { desert: 3, grass: 4, jungle: 5, rock: 6, snow: 7, tropical: 5 };
+function generateWorld(seed, real, spec) {
+  const sp = Object.assign({}, FREE_PLAY, spec || {});
   if (real) real = Object.assign({}, real, { built: real.built.slice(), road: real.road.slice() });   // we bulldoze under bases
   const N = SIZE * SIZE;
   const w = {
@@ -137,30 +155,121 @@ function generateWorld(seed, real) {
   const ri = (lo, hi) => lo + Math.floor(rnd() * (hi - lo + 1));
   const at = (x, y) => (x < 0 || y < 0 || x >= SIZE || y >= SIZE) ? T.DEEP : w.ground[y * SIZE + x];
   const isWater = (x, y) => at(x, y) <= T.SHALLOW;
+  const angDiff0 = (a, b) => { let dd = (b - a) % (Math.PI * 2); if (dd > Math.PI) dd -= Math.PI * 2; if (dd < -Math.PI) dd += Math.PI * 2; return dd; };
   w.at = at;
 
   // --- terrain ---------------------------------------------------------------
   const elev = makeFbm(seed, 0.011, 4), temp = makeFbm(seed + 101, 0.008, 2);
   const wet = makeFbm(seed + 202, 0.007, 3), detail = makeFbm(seed + 303, 0.045, 2);
+  // Land shape: d is 0 in the heart of the land and reaches 1 at the coast (before the noise roughens it).
+  const srnd = mulberry32(seed * 131 + 7);
+  const sr = (lo, hi) => lo + srnd() * (hi - lo);
+  const R = sp.size || 1, ang = (sp.axis || 0) * Math.PI / 180;
+  const blobs = [];
+  if (sp.shape === 'archipelago') {
+    const n = sp.islands || 5;
+    for (let k = 0; k < n; k++) { const a = k / n * Math.PI * 2 + sr(-0.4, 0.4), r = k === 0 && n > 3 ? 0 : sr(0.38, 0.6) * R; blobs.push([Math.cos(a) * r * (k === 0 && n > 3 ? 0 : 1), Math.sin(a) * r * (k === 0 && n > 3 ? 0 : 1), sr(0.26, 0.36) * R * (n <= 3 ? 1.35 : 1)]); }
+  } else if (sp.shape === 'twin') {
+    blobs.push([-Math.cos(ang) * 0.42 * R, -Math.sin(ang) * 0.42 * R, 0.42 * R], [Math.cos(ang) * 0.42 * R, Math.sin(ang) * 0.42 * R, 0.42 * R]);
+  }
+  const segD = (px, py, ax, ay, bx, by) => { const vx = bx - ax, vy = by - ay, t = Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / (vx * vx + vy * vy))); return Math.hypot(px - ax - vx * t, py - ay - vy * t); };
+  const shapeD = (nx, ny) => {
+    const rad = Math.max(Math.abs(nx), Math.abs(ny)) * 0.55 + Math.hypot(nx, ny) * 0.45;
+    const u = nx * Math.cos(ang) + ny * Math.sin(ang), v = -nx * Math.sin(ang) + ny * Math.cos(ang);
+    switch (sp.shape) {
+      case 'continent': return rad / (R * 1.22);
+      case 'archipelago': case 'twin': {
+        let d = 9;
+        for (const [bx, by, br] of blobs) d = Math.min(d, Math.hypot(nx - bx, ny - by) / br);
+        if (sp.shape === 'twin' && sp.isthmus) d = Math.min(d, segD(nx, ny, blobs[0][0], blobs[0][1], blobs[1][0], blobs[1][1]) / 0.11 * 0.9);
+        return d;
+      }
+      case 'peninsula': return Math.max((u + 0.38 * R) * 1.2, Math.abs(v) / (R * (0.42 + Math.max(0, -u) * 0.55)));   // joined to the mainland off the map edge
+      case 'atoll': return Math.abs(Math.hypot(nx, ny) - 0.6 * R) / (0.24 * R);
+      case 'crescent': {
+        let d = Math.abs(Math.hypot(nx, ny) - 0.58 * R) / (0.27 * R);
+        const gap = Math.abs(angDiff0(Math.atan2(ny, nx), ang));
+        return d + Math.max(0, 0.95 - gap) * 2.2;
+      }
+      case 'long': return Math.hypot(u / (R * 0.98), v / (R * 0.44));
+      default: return rad / R;
+    }
+  };
+  // Biomes: 'classic' (the free-play layout), one biome everywhere, or bands of biomes across the map.
+  const bands = sp.biome === 'classic' ? null : (Array.isArray(sp.biome) ? sp.biome : [sp.biome]);
+  const bandAt = (x, y) => {
+    if (bands.length === 1) return bands[0];
+    const nx = x / SIZE * 2 - 1, ny = y / SIZE * 2 - 1;
+    const s0 = ((nx * Math.cos(ang) + ny * Math.sin(ang)) / 1.4 + 0.5) + temp(x, y) * 0.16;
+    return bands[Math.max(0, Math.min(bands.length - 1, Math.floor(s0 * bands.length)))];
+  };
+  w.cold = new Uint8Array(N);
+  // Ridges: mountain spines laid across the land; they raise the ground and turn it to rock or snow.
+  const ridge = new Float32Array(N);
+  if (!real && sp.ridges) {
+    const rn = makeFbm(seed + 909, 0.05, 2);
+    for (let k = 0; k < sp.ridges; k++) {
+      const a = (sp.ridgeAxis !== undefined ? sp.ridgeAxis * Math.PI / 180 : sr(0, Math.PI)) + sr(-0.25, 0.25) + k * 0.9;
+      const len = sr(0.55, 0.9) * R * SIZE * 0.5, ox = SIZE / 2 + sr(-0.25, 0.25) * SIZE * R, oy = SIZE / 2 + sr(-0.25, 0.25) * SIZE * R;
+      const pts = [];
+      for (let j = 0; j <= 8; j++) { const t = j / 8 * 2 - 1; pts.push([ox + Math.cos(a) * len * t + sr(-9, 9), oy + Math.sin(a) * len * t + sr(-9, 9)]); }
+      const width = sp.ridgeWidth || 9;
+      for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
+        let d = 99;
+        for (let j = 0; j + 1 < pts.length; j++) d = Math.min(d, segD(x, y, pts[j][0], pts[j][1], pts[j + 1][0], pts[j + 1][1]));
+        const v = Math.max(0, 1 - d / (width * (0.75 + rn(x, y) * 0.5)));
+        if (v > ridge[y * SIZE + x]) ridge[y * SIZE + x] = v;
+      }
+    }
+  }
+  const lake = makeFbm(seed + 1111, 0.03, 2);
   if (real) w.ground.set(real.ground);
   else for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
     const nx = x / SIZE * 2 - 1, ny = y / SIZE * 2 - 1;
-    const d = Math.max(Math.abs(nx), Math.abs(ny)) * 0.55 + Math.sqrt(nx * nx + ny * ny) * 0.45;
-    const land = elev(x, y) * 0.5 + 0.5 - Math.pow(d, 3.0) * 0.72;
+    const d = shapeD(nx, ny);
+    const land = elev(x, y) * 0.5 + 0.5 - Math.pow(Math.max(0, d), 3.0) * 0.72 + (sp.shape === 'continent' ? 0.04 : 0);
     let t;
     if (land < LAND_DEEP) t = T.DEEP;
     else if (land < LAND_SHALLOW) t = T.SHALLOW;
-    else {
+    else if (!bands) {
       const north = (x + y) / (SIZE * 2) + temp(x, y) * 0.14;
       const east = (x - y) / SIZE + wet(x, y) * 0.55;
       const dn = detail(x, y);
-      if (north < 0.40) t = dn > 0.42 ? T.ROCK : T.SNOW;
+      if (north < 0.40) { t = dn > 0.42 ? T.ROCK : T.SNOW; w.cold[y * SIZE + x] = 1; }
       else if (east < -0.07) t = dn > 0.40 ? T.GRASS : T.JUNGLE;
       else if (east < 0.07) t = T.GRASS;
       else t = dn > 0.50 ? T.ROCK : T.DESERT;
+    } else {
+      const b = bandAt(x, y), dn = detail(x, y);
+      if (b === 'snow') w.cold[y * SIZE + x] = 1;
+      t = b === 'desert' ? (dn > 0.52 ? T.ROCK : T.DESERT)
+        : b === 'grass' ? (dn > 0.56 ? T.ROCK : dn < -0.30 ? T.JUNGLE : T.GRASS)
+        : b === 'jungle' ? (dn > 0.46 ? T.GRASS : T.JUNGLE)
+        : b === 'tropical' ? (dn > 0.30 ? T.GRASS : T.JUNGLE)
+        : b === 'rock' ? (dn > 0.05 ? T.GRASS : T.ROCK)
+        : (dn > 0.44 ? T.ROCK : T.SNOW);
+      const rv = ridge[y * SIZE + x];
+      if (rv > 0.62) t = (b === 'snow' || (rv > 0.86 && b !== 'desert' && b !== 'tropical')) ? T.SNOW : T.ROCK;
+      else if (rv > 0.4 && t !== T.SNOW) t = dn > 0.2 ? T.ROCK : t;
+      if (sp.lakes && d < 0.82 && lake(x, y) > 0.68 - sp.lakes * 0.16 && rv < 0.3) t = lake(x, y) > 0.76 - sp.lakes * 0.16 ? T.DEEP : T.SHALLOW;
     }
     w.ground[y * SIZE + x] = t;
   }
+  // Rivers: from the heart of the land out to the sea, meandering.
+  if (!real && sp.rivers) {
+    for (let k = 0; k < sp.rivers; k++) {
+      let x = SIZE / 2 + sr(-30, 30) * R, y = SIZE / 2 + sr(-30, 30) * R, a = k / sp.rivers * Math.PI * 2 + sr(-0.5, 0.5);
+      for (let step = 0; step < 400; step++) {
+        a += sr(-0.35, 0.35); x += Math.cos(a) * 0.8; y += Math.sin(a) * 0.8;
+        const cx = Math.round(x), cy = Math.round(y);
+        if (cx < 2 || cy < 2 || cx >= SIZE - 2 || cy >= SIZE - 2) break;
+        if (w.ground[cy * SIZE + cx] === T.DEEP && step > 10) break;
+        const wd = step < 20 ? 0 : 1;
+        for (let oy = -wd; oy <= wd; oy++) for (let ox = -wd; ox <= wd; ox++) if (Math.abs(ox) + Math.abs(oy) <= wd) w.ground[(cy + oy) * SIZE + cx + ox] = T.SHALLOW;
+      }
+    }
+  }
+  w.ridge = ridge;
 
   // --- coasts: beach ring on land, shallows on water ---------------------------
   const src = w.ground.slice();
@@ -258,7 +367,7 @@ function generateWorld(seed, real) {
       }
     }
   };
-  if (!real) for (const s of [36, 28, 22]) {
+  if (!real) for (const s of sp.cities) {
     const r = findSite(s, 0.9, w.cities);
     if (r) { w.cities.push(r); buildCity(r, w.cities.length); }
   }
@@ -300,11 +409,23 @@ function generateWorld(seed, real) {
   };
   const THEME_BASE = real ? ({ desert: T.DESERT, snow: T.SNOW }[real.theme] || T.GRASS) : T.GRASS;
   const taken = w.cities.slice();
-  const anchor = real ? { x: SIZE / 2, y: SIZE / 2 } : w.cities.length ? { x: w.cities[0].x + w.cities[0].s / 2, y: w.cities[0].y + w.cities[0].s / 2 } : null;
+  let lcx = 0, lcy = 0, ln = 0;
+  for (let y = 0; y < SIZE; y += 2) for (let x = 0; x < SIZE; x += 2) if (!isWater(x, y)) { lcx += x; lcy += y; ln++; }
+  const landMid = ln ? { x: lcx / ln, y: lcy / ln } : { x: SIZE / 2, y: SIZE / 2 };
+  const anchor = real ? { x: SIZE / 2, y: SIZE / 2 } : spec ? landMid : w.cities.length ? { x: w.cities[0].x + w.cities[0].s / 2, y: w.cities[0].y + w.cities[0].s / 2 } : null;
   w.homeBase = (anchor && findSite(12, 0.98, taken, anchor, 60)) || (real && (findSite(12, 0.8, taken, anchor, 80) || findSite(12, 0.55, taken, anchor, 100))) || findSite(12, 0.9, taken) || { x: SIZE / 2 - 6, y: SIZE / 2 - 6, s: 12 };
   taken.push(w.homeBase); buildBase(w.homeBase, true);
-  for (let k = 0; k < 5; k++) {
+  for (let k = 0; k < sp.zones; k++) {
     let r = null;
+    if (spec && !real) {                               // campaign: spread the enemy out around you, as far from everything as possible
+      let best = -1;
+      for (let t = 0; t < 70; t++) {
+        const c = findSite(12, t < 50 ? 0.95 : 0.8, taken);
+        if (!c) continue;
+        const md = Math.min(...taken.map((o) => Math.hypot(o.x + o.s / 2 - c.x - 6, o.y + o.s / 2 - c.y - 6) * (o === w.homeBase ? 0.8 : 1)));
+        if (md > best) { best = md; r = c; }
+      }
+    }
     if (real && k === 0) {                              // a real airfield or military area gets the first enemy base
       for (let t = 0; t < 400 && !r; t++) {
         const c = { x: ri(EDGE_MARGIN + 4, SIZE - EDGE_MARGIN - 16), y: ri(EDGE_MARGIN + 4, SIZE - EDGE_MARGIN - 16), s: 12 };
@@ -327,13 +448,13 @@ function generateWorld(seed, real) {
   w.bases.forEach((r, bi) => {
     const ring = [...ringCells(r, 1), ...ringCells(r, 2), ...ringCells(r, 3)];
     const dry = ring.every(([x, y]) => !isWater(x, y) && at(x, y) < T.ASPHALT);
-    for (const [x, y] of [[10, 4], [4, 7], [10, 8]]) w.spawns.push({ type: 'aa', x: r.x + x, y: r.y + y, base: bi });
+    const G = GARRISON[Math.max(1, Math.min(5, sp.garrison))];
+    for (const [x, y] of [[10, 4], [4, 7], [10, 8], [7, 10]].slice(0, G.aa)) w.spawns.push({ type: 'aa', x: r.x + x, y: r.y + y, base: bi });
     if (dry) {
       for (const [x, y] of ring) { w.blocked[y * SIZE + x] = 1; w.small[y * SIZE + x] = -1; }     // cleared security perimeter
       const loop = (k) => [[r.x - k, r.y - k], [r.x + r.s - 1 + k, r.y - k], [r.x + r.s - 1 + k, r.y + r.s - 1 + k], [r.x - k, r.y + r.s - 1 + k]];
-      w.spawns.push({ type: 'tank', loop: loop(2.6), at: 0, base: bi });
-      w.spawns.push({ type: 'tank', loop: loop(2.6), at: 2, base: bi });
-      for (let k = 0; k < 6; k++) w.spawns.push({ type: 'inf', loop: loop(1.2), at: k % 4, frac: (k * 0.37) % 1, base: bi });
+      for (let k = 0; k < G.tanks; k++) w.spawns.push({ type: 'tank', loop: loop(2.6), at: [0, 2, 1][k], base: bi });
+      for (let k = 0; k < G.inf; k++) w.spawns.push({ type: 'inf', loop: loop(1.2), at: k % 4, frac: (k * 0.37) % 1, base: bi });
     } else {
       for (const [x, y] of [[7, 4], [6, 6], [3, 8], [9, 9]]) w.spawns.push({ type: 'inf', x: r.x + x, y: r.y + y, base: bi });
       w.spawns.push({ type: 'aa', x: r.x + 7, y: r.y + 6, base: bi });
@@ -344,15 +465,18 @@ function generateWorld(seed, real) {
   // --- field patrols: a tank and a rifle squad circling a cleared track, out in open country ---
   w.patrols = [];
   const keepOut = [...w.cities, ...w.bases, w.homeBase];
-  for (let k = 0, tries = 0; k < 12 && tries < 3000; tries++) {
+  for (let k = 0, tries = 0; k < sp.patrols && tries < 3000; tries++) {
     const s0 = 7, r = { x: ri(EDGE_MARGIN + 6, SIZE - EDGE_MARGIN - 6 - s0), y: ri(EDGE_MARGIN + 6, SIZE - EDGE_MARGIN - 6 - s0), s: s0 };
     if (keepOut.some((o) => overlaps(r, o, 12)) || w.patrols.some((o) => overlaps(r, o, 16))) continue;
     const track = ringCells(r, 0);
     if (!track.every(([x, y]) => !isWater(x, y) && at(x, y) < T.ASPHALT && !w.blocked[y * SIZE + x] && !occupied(y * SIZE + x))) continue;
     for (const [x, y] of track) { w.blocked[y * SIZE + x] = 1; w.small[y * SIZE + x] = -1; }
     const loop = [[r.x, r.y], [r.x + s0 - 1, r.y], [r.x + s0 - 1, r.y + s0 - 1], [r.x, r.y + s0 - 1]];
-    w.spawns.push({ type: 'tank', loop, at: k % 4, base: -1 });
-    for (let j = 0; j < 4; j++) w.spawns.push({ type: 'inf', loop, at: (k + 2) % 4, frac: 0.15 + j * 0.2, base: -1 });
+    let zb = -1, zd = 1e9;
+    w.bases.forEach((b, bi) => { const dd = Math.hypot(b.x + 6 - r.x - 3, b.y + 6 - r.y - 3); if (dd < zd) { zd = dd; zb = bi; } });
+    if (!spec) zb = -1;
+    w.spawns.push({ type: 'tank', loop, at: k % 4, base: zb, field: true });
+    for (let j = 0; j < 4; j++) w.spawns.push({ type: 'inf', loop, at: (k + 2) % 4, frac: 0.15 + j * 0.2, base: zb, field: true });
     w.patrols.push(r); k++;
   }
 
@@ -447,11 +571,12 @@ function generateWorld(seed, real) {
     for (let i = 0; i < N; i++) if (w.ground[i] <= T.SAND || w.ground[i] >= T.ASPHALT || w.blocked[i]) dist[i] = 0;
     for (let y = 1; y < SIZE; y++) for (let x = 1; x < SIZE - 1; x++) { const i = y * SIZE + x; dist[i] = Math.min(dist[i], dist[i - 1] + 1, dist[i - SIZE] + 1, dist[i - SIZE - 1] + 1, dist[i - SIZE + 1] + 1); }
     for (let y = SIZE - 2; y >= 0; y--) for (let x = SIZE - 2; x >= 1; x--) { const i = y * SIZE + x; dist[i] = Math.min(dist[i], dist[i + 1] + 1, dist[i + SIZE] + 1, dist[i + SIZE + 1] + 1, dist[i + SIZE - 1] + 1); }
-    const GAIN = { [T.ROCK]: 16, [T.SNOW]: 12, [T.DESERT]: 12, [T.GRASS]: 8, [T.JUNGLE]: 8 };
+    const hm = sp.hills === undefined ? 1 : sp.hills;
+    const GAIN = { [T.ROCK]: 16 * hm, [T.SNOW]: 12 * hm, [T.DESERT]: 12 * hm, [T.GRASS]: 8 * hm, [T.JUNGLE]: 8 * hm };
     for (let y = EDGE_MARGIN; y < SIZE - EDGE_MARGIN; y++) for (let x = EDGE_MARGIN; x < SIZE - EDGE_MARGIN; x++) {
       const i = y * SIZE + x, g = GAIN[w.ground[i]];
-      if (!g || dist[i] < 3) continue;
-      w.height[i] = Math.min(6, Math.floor(Math.max(0, hill(x, y) + rough(x, y) * 0.22 - 0.16) * g * 1.3), dist[i] - 2);
+      if ((!g && ridge[i] < 0.2) || dist[i] < 3) continue;
+      w.height[i] = Math.min(6, Math.floor(Math.max(0, hill(x, y) + rough(x, y) * 0.22 - 0.16) * g * 1.3 + ridge[i] * 5.5), dist[i] - 2);
     }
   }
 
@@ -495,14 +620,14 @@ function generateWorld(seed, real) {
         else if (roll < 0.60) w.small[i] = P.BUSH + ri(0, 3);
         break;
       case T.GRASS:
-        if (roll < 0.05 + Math.max(g, 0) * 0.25) w.small[i] = (rnd() < 0.2 ? P.BIGTREE + ri(0, 2) : P.TREE + ri(0, 5));
+        if (roll < (0.05 + Math.max(g, 0) * 0.25) * sp.forest) w.small[i] = (rnd() < 0.2 ? P.BIGTREE + ri(0, 2) : P.TREE + ri(0, 5));
         else if (roll < 0.10) w.small[i] = P.BUSH + ri(0, 3);
         else if (roll < 0.17) w.small[i] = P.FLOWERS + ri(0, 2);
         else if (roll < 0.26) w.small[i] = P.TUFTS + ri(0, 1);
         else if (roll < 0.27) w.small[i] = P.STONES + ri(0, 2);
         break;
       case T.SAND:
-        if (roll < 0.07 && north > 0.46) w.small[i] = P.PALM + ri(0, 3);
+        if (roll < 0.07 && (bands ? !w.cold[i] && (bands.includes('tropical') || bands.includes('jungle') || bands.includes('desert')) : north > 0.46)) w.small[i] = P.PALM + ri(0, 3);
         else if (roll > 0.975) w.small[i] = P.SANDSTONES + ri(0, 1);
         break;
       case T.DESERT:
@@ -513,11 +638,11 @@ function generateWorld(seed, real) {
         else if (roll < 0.089) w.small[i] = P.DEADTREE + ri(0, 1);
         break;
       case T.ROCK:
-        if (roll < 0.12) w.small[i] = north < 0.42 ? P.SNOWROCK + ri(0, 2) : P.ROCK + ri(0, 3);
+        if (roll < 0.12) w.small[i] = (bands ? w.cold[i] : north < 0.42) ? P.SNOWROCK + ri(0, 2) : P.ROCK + ri(0, 3);
         else if (roll < 0.20) w.small[i] = P.STONES + ri(0, 2);
         break;
       case T.SNOW:
-        if (roll < 0.06 + Math.max(g, 0) * 0.9) w.small[i] = P.PINE + ri(0, 3);
+        if (roll < (0.06 + Math.max(g, 0) * 0.9) * sp.forest) w.small[i] = P.PINE + ri(0, 3);
         else if (roll > 0.985) w.small[i] = P.SNOWROCK + ri(0, 2);
         else if (roll > 0.960) w.small[i] = P.SNOWBUSH + ri(0, 1);
         else if (roll > 0.953) w.small[i] = P.DEADTREE + ri(0, 1);
@@ -720,7 +845,7 @@ function initCombat() {
   const pt = (c) => ({ x: cellX(c[0], c[1]), y: cellY(c[0], c[1]) });
   for (const s of world.spawns) {
     const def = ENEMY[s.type];
-    const e = { type: s.type, hp: def.hp, alive: true, h: rand(0, Math.PI * 2), th: 0, cool: rand(0.5, def.rate + 1), base: s.base, phase: rand(0, 4), engaged: false };
+    const e = { type: s.type, hp: def.hp, alive: true, h: rand(0, Math.PI * 2), th: 0, cool: rand(0.5, def.rate + 1), base: s.base, phase: rand(0, 4), engaged: false, field: !!s.field };
     if (s.loop) {
       e.loop = s.loop.map(pt); e.next = (s.at + 1) % 4;
       const a = e.loop[s.at], b = e.loop[e.next], f = s.frac || 0;
@@ -934,9 +1059,9 @@ function drawParticles(ox, oy) {
 
 // --- damage ---------------------------------------------------------------------------------
 function targetPos(t) { return { x: cellX(t.x, t.y), y: cellY(t.x, t.y) }; }
-function damageAt(x, y, blast, dmg, pi) {
-  for (const e of enemies) if (e.alive && gdist(x, y, e.x, e.y) < blast + ENEMY[e.type].radius) { e.hp -= dmg; if (e.hp <= 0) killEnemy(e, pi); }
-  for (const t of world.targets) {
+function damageAt(x, y, blast, dmg, pi, byEnemy) {
+  if (!byEnemy) for (const e of enemies) if (e.alive && gdist(x, y, e.x, e.y) < blast + ENEMY[e.type].radius) { e.hp -= dmg; if (e.hp <= 0) killEnemy(e, pi); }
+  if (!byEnemy) for (const t of world.targets) {
     if (!t.alive) continue;
     const p = targetPos(t);
     if (gdist(x, y, p.x, p.y) < blast + t.radius) { t.hp -= dmg; if (t.hp <= 0) destroyTarget(t, pi); }
@@ -1176,6 +1301,9 @@ function updateShots(dt) {
         puff('dust', s.x1, s.y1, 1, { r: 2, life: 0.4, c: '#b8a888', a: 0.45 });
       } else explosion(s.x1, s.y1, s.z1 + 3, w.boom, true);
       if (authority()) damageAt(s.x1, s.y1, w.blast, w.dmg, s.pi);
+    } else if (s.siege || s.pi < 0) {
+      explosion(s.x1, s.y1, 6, 22, true);
+      if (s.siege && authority()) damageAt(s.x1, s.y1, s.siege.blast, s.siege.dmg, 0, true);
     } else {
       const th = helis[s.pi], near = !players[s.pi].dead && gdist(th.x, th.y, s.x1, s.y1) < s.hit;
       if (s.kind === 'inf') { if (near) puff('spark', th.x + rand(-10, 10), th.y, s.z1, { vx: rand(-60, 60), vz: rand(20, 80), life: 0.25 }); }
@@ -1219,7 +1347,7 @@ function updateEnemies(dt) {
     if (!e.alive) continue;
     const def = ENEMY[e.type];
     const [pi, d] = nearestPlayer(e.x, e.y, e.type === 'aa');          // AA guns cannot depress onto ground targets
-    if (d > 1500) { e.engaged = false; if (pi >= 0 || !e.loop) continue; }       // far away: leave it asleep
+    if (d > 1500) { e.engaged = false; if (!e.goal && e.base !== -2 && (pi >= 0 || !e.loop)) continue; }       // far away: leave it asleep (unless it is on the march)
     const heli = pi >= 0 ? helis[pi] : null;
     const toHeli = heli ? gangle(e.x, e.y, heli.x, heli.y) : e.h;
     e.engaged = !!heli && d < def.range;
@@ -1228,8 +1356,10 @@ function updateEnemies(dt) {
       if (heli && d < def.range * 1.4) e.h = rotateToward(e.h, toHeli, 2.6 * dt);
       else e.h += 0.3 * dt;                                // idle scan
     } else if (e.engaged) {
-      if (e.type === 'tank') e.th = rotateToward(e.th, toHeli, 2.0 * dt); else e.h = rotateToward(e.h, toHeli, 6 * dt);
-    } else if (e.loop) {
+      if (e.type === 'tank') e.th = rotateToward(e.th, toHeli, 2.0 * dt); else e.h = rotateToward(e.h, toHeli, (e.type === 'gunship' ? 2.2 : 6) * dt);
+    } else if (e.goal) moveWave(e, dt);
+    else if (e.base === -2) siegeHome(e, dt);
+    else if (e.loop) {
       const wp = e.loop[e.next];
       const want = gangle(e.x, e.y, wp.x, wp.y);
       e.h = rotateToward(e.h, want, (e.type === 'tank' ? 1.3 : 5) * dt);
@@ -1279,7 +1409,7 @@ function updatePlayer(pi, dt) {
   }
   // sitting on the home helipad resupplies whatever you are in
   const hx = cellX(world.home.x - 0.5, world.home.y - 0.5), hy = cellY(world.home.x - 0.5, world.home.y - 0.5);
-  const onPad = gdist(heli.x, heli.y, hx, hy) < 64 && Math.hypot(heli.vx, heli.vy) < 90;
+  const onPad = gdist(heli.x, heli.y, hx, hy) < 64 && Math.hypot(heli.vx, heli.vy) < 90 && !(typeof homeUnderAttack === 'function' && homeUnderAttack());
   const full = fullAmmo(pl.kind);
   const needs = (kind.fuel && pl.fuel < PLAYER_MAX.fuel - 4) || pl.armor < kind.armor - 1 || pl.ammo.some((a, s) => a < full[s]);
   if (onPad && needs) {
@@ -1326,6 +1456,7 @@ function updateCombat(dt) {
   if (authority()) {
     for (let pi = 0; pi < 2; pi++) if (players[pi].active) updatePlayer(pi, dt);
     updateEnemies(dt);
+    if (typeof updateCampaign === 'function') updateCampaign(dt);
     updateCars(dt);
     updateVehicles(dt);
     for (let i = pending.length - 1; i >= 0; i--) {          // delayed secondary explosions
@@ -1376,7 +1507,7 @@ function collectDynamics(ox, oy) {
   const rows = new Map();
   const add = (y, item) => { const s = Math.round(y / (TH / 2)); let r = rows.get(s); if (!r) rows.set(s, r = []); r.push(item); };
   const vis = (x, y) => x > ox - 120 && x < ox + W + 120 && y > oy - 120 && y < oy + H + 160;
-  for (const e of enemies) if ((e.alive || e.type !== 'inf') && vis(e.x, e.y)) add(e.y, { k: 'enemy', e });
+  for (const e of enemies) if ((e.alive || e.type !== 'inf') && e.type !== 'gunship' && vis(e.x, e.y)) add(e.y, { k: 'enemy', e });
   for (const p of pickups) if (!p.taken && vis(p.x, p.y)) add(p.y, { k: 'pickup', p });
   for (const v of vehicles) if (v && !v.gone && vis(v.x, v.y) && !(VEH[v.kind].air && v.alive && v.alt > 3)) add(v.y, { k: 'veh', v });
   for (let pi = 0; pi < 2; pi++) if (players[pi].active && !players[pi].dead && players[pi].kind === 'foot' && vis(helis[pi].x, helis[pi].y)) add(helis[pi].y, { k: 'foot', pi });
@@ -1491,7 +1622,8 @@ function drawCombatHud() {
   text(kind.name, 108, 19, 'cyan');
   const hint = interactHint(me);                          // the one action button
   if (hint) { const r = interactRect(); panel(r); text('E', r[0] + 4, r[1] + 1, 'yellow'); text(hint, r[0] + 14, r[1] + 1, hint.startsWith('SLOW') || hint.startsWith('CANNOT') ? 'white' : 'yellow'); }
-  panel([UW - 77, 33, 74, 13]); text('TARGETS ' + pad(targetsLeft, 2), UW - 73, 34, 'yellow');
+  panel([UW - 77, 33, 74, 13]);
+  if (typeof campaign !== 'undefined' && campaign) text((campaign.won ? 'CLEARED' : 'ENEMY ' + pad(enemyLeft(), 3)), UW - 73, 34, 'yellow'); else text('TARGETS ' + pad(targetsLeft, 2), UW - 73, 34, 'yellow');
   panel(mapButtonRect()); text('MAP  (TAB)', UW - 70, 49);
   panel(zoomButtonRect()); text('ZOOM  (Z)', UW - 70, 94);
   panel(placeButtonRect()); text('REAL PLACE', UW - 70, 79, currentPlace ? 'cyan' : 'white');
@@ -1518,7 +1650,7 @@ function drawCombatHud() {
     const d = Math.hypot(b.x + 6 - hmx, b.y + 6 - hmy);
     if (live && d < nearestD) { nearestD = d; nearest = b; }
   });
-  for (const e of enemies) if (e.alive && e.type === 'tank' && e.base < 0) dot(mapX(e.x, e.y), mapY(e.x, e.y), '#f09050', 0);
+  for (const e of enemies) if (e.alive && (e.type === 'tank' || e.type === 'gunship') && (e.field || e.wave || e.base < 0)) dot(mapX(e.x, e.y), mapY(e.x, e.y), '#f09050', 0);
   if (players[1 - me].active) dot(mapX(helis[1 - me].x, helis[1 - me].y), mapY(helis[1 - me].x, helis[1 - me].y), '#60e0e8', 1);
   if (blinkOn) dot(hmx, hmy, '#ffffff', 1);
   // arrow at the screen edge toward the nearest enemy base still standing
@@ -1675,6 +1807,8 @@ function netHello() {                                 // everything a (re)joinin
   const aliveCars = new Set(cars.map((c) => c.id));
   netSend({
     t: 'hello', seed, place: currentPlace, tl: targetsLeft,
+    camp: campaign ? { id: campaign.id, elapsed: campaign.elapsed, wave: campaign.waveClock, waves: campaign.waves, won: campaign.won } : null,
+    ex: campaign ? enemies.slice(campaign.nSpawn).map((e) => packExtra(e)) : [], prog: loadProgress(),
     cells: [...changedCells].map((i) => [i, world.small[i], world.large[i]]),
     ek: enemies.map((e, k) => (e.alive ? -1 : k)).filter((k) => k >= 0),
     tk: world.targets.map((t, k) => (t.alive ? -1 : k)).filter((k) => k >= 0),
@@ -1712,6 +1846,11 @@ function glideTo(h, a) {                              // remote helicopter: reme
 function netMessage(m) {
   if (role === 'host' || (role === 'solo' && m.t === 'in')) {
     if (m.t === 'act') { interact(1); return; }
+    if (m.t === 'merge') {                            // the guest's own save of this map, and its progress: fold them in
+      if (m.prog) saveProgress(mergeProgress(loadProgress(), m.prog));
+      if (m.st && applyDelta(m.st)) { say('MERGED PLAYER 2\'S SAVED PROGRESS', 4); autosave(true); }
+      return;
+    }
     if (m.t !== 'in') return;
     const pl = players[1];
     if (time > pl.holdUntil && !pl.dead) glideTo(helis[1], m.h);
@@ -1732,10 +1871,17 @@ function netMessage(m) {
         }
         NET.busy = false; currentPlace = m.place;
         newWorld(m.seed, placeCache.real);
+      } else if (m.camp) {
+        NET.busy = false;
+        const spec = MAPS[m.camp.id - 1];
+        campaign = { id: m.camp.id, spec, elapsed: m.camp.elapsed, waveClock: m.camp.wave, waves: m.camp.waves, won: m.camp.won, nSpawn: 0, saveClock: 0, zoneHeld: [] };
+        newWorld(spec.seed, null, spec);
+        campaign.nSpawn = enemies.length;
+        for (const a of m.ex) enemies.push(unpackExtra(a));
       } else { NET.busy = false; newWorld(m.seed); }
       players[0].active = players[1].active = true;
-      for (const [i, s, l] of m.cells) { world.small[i] = s; world.large[i] = l; }
-      for (const k of m.ek) enemies[k].alive = false;
+      for (const [i, s, l] of m.cells) { world.small[i] = s; world.large[i] = l; changedCells.add(i); }
+      for (const k of m.ek) if (enemies[k]) enemies[k].alive = false;
       for (const k of m.tk) world.targets[k].alive = false;
       for (const k of m.pk) pickups[k].taken = true;
       const gone = new Set(m.cars); cars = cars.filter((c) => !gone.has(c.id));
@@ -1743,7 +1889,23 @@ function netMessage(m) {
       m.pl.forEach((a, pi) => { players[pi].kind = a[0]; players[pi].vid = a[1]; });
       targetsLeft = m.tl;
       snapCamera(); reveal(REVEAL_RADIUS);
-      sayLocal('LINKED. YOU ARE PLAYER 2', 4);
+      sayLocal(campaign ? 'LINKED. MAP ' + campaign.id + ': ' + campaign.spec.name : 'LINKED. YOU ARE PLAYER 2', 4);
+      if (campaign) {
+        campaign.zoneHeld = world.bases.map((_, bi) => zoneHeld(bi));
+        if (m.prog) lsSet(PROG_KEY, mergeProgress(loadProgress(), m.prog));
+        netSend({ t: 'merge', st: lsGet(mapKey(campaign.id)), prog: loadProgress() });
+        autosave(false);
+      }
+      break;
+    }
+    case 'enew': enemies.push(unpackExtra(m.a)); break;
+    case 'won': {
+      if (campaign) campaign.won = true;
+      const prog = loadProgress();
+      if (!prog.won.includes(m.id)) prog.won.push(m.id);
+      prog.unlocked = Math.max(prog.unlocked, Math.min(MAPS.length, m.id + 1)); prog.pct[m.id] = 100;
+      lsSet(PROG_KEY, Object.assign(prog, { t: Date.now() }));
+      autosave(false);
       break;
     }
     case 'snap': {
@@ -2180,6 +2342,512 @@ function placeScreen() {
 }
 
 // ---------------------------------------------------------------------------
+// The campaign: 30 designed maps, easiest first. Each is generated from its spec by generateWorld() in
+// world.js, so the same spec always gives the same map. Fields (defaults in FREE_PLAY, world.js):
+//   shape    island | continent | archipelago (islands: n) | twin (isthmus: true) | peninsula | atoll | crescent | long
+//   size     how much of the 256x256 grid the land fills (about 0.55 small .. 1.0 large)
+//   axis     degrees; orientation for twin, peninsula, crescent gap, long and biome bands
+//   biome    one of desert grass jungle tropical rock snow, a list (bands across the map along `axis`), or 'classic'
+//   hills    height of rolling hills (0 flat .. 2 rugged);  ridges / ridgeAxis / ridgeWidth: mountain spines
+//   rivers   rivers running from inland to the sea;  lakes 0..1;  forest: tree density (1 normal)
+//   cities   city sizes in tiles, e.g. [36, 28]
+//   zones    enemy bases (each holds a zone of the map);  garrison 1..5: how hard each base is
+//   patrols  tank + rifle squads out in the field
+//   waves    { first, every, size, tanks } seconds and units: counter-attacks from the zones the enemy still holds
+// ---------------------------------------------------------------------------
+const MAPS = [
+  { name: 'BEACHHEAD', brief: 'A small green island. Learn the ropes: three lightly held bases.',
+    seed: 1101, shape: 'island', size: 0.62, biome: 'grass', hills: 0.6, cities: [22], zones: 3, garrison: 1, patrols: 3, waves: null },
+  { name: 'PALM ATOLL', brief: 'A ring of jungle around a blue lagoon. The enemy holds the far side.',
+    seed: 1202, shape: 'atoll', size: 0.95, biome: 'tropical', hills: 0.4, cities: [], zones: 3, garrison: 1, patrols: 4, waves: null },
+  { name: 'DUST BOWL', brief: 'Open desert, nowhere to hide. Expect their first counter-attack.',
+    seed: 1303, shape: 'island', size: 0.7, biome: 'desert', hills: 1.2, cities: [22], zones: 4, garrison: 1, patrols: 4,
+    waves: { first: 300, every: 240, size: 3, tanks: 0.34 } },
+  { name: 'TWIN RIVERS', brief: 'Farmland split by two rivers. Bridges are the only way across for armour.',
+    seed: 1404, shape: 'island', size: 0.82, biome: 'grass', hills: 0.7, rivers: 2, forest: 1.4, cities: [28], zones: 4, garrison: 2, patrols: 5,
+    waves: { first: 280, every: 220, size: 3, tanks: 0.34 } },
+  { name: 'PINE RIDGE', brief: 'Snowbound forest with a mountain spine down the middle.',
+    seed: 1505, shape: 'island', size: 0.78, biome: 'snow', hills: 1, ridges: 1, ridgeAxis: 45, forest: 1.3, cities: [22], zones: 4, garrison: 2, patrols: 5,
+    waves: { first: 260, every: 210, size: 4, tanks: 0.25 } },
+  { name: 'HARBOR TOWN', brief: 'Urban fighting on a peninsula. Two cities, streets full of cover.',
+    seed: 1606, shape: 'peninsula', size: 0.9, axis: 30, biome: 'grass', hills: 0.5, cities: [36, 28], zones: 4, garrison: 2, patrols: 5,
+    waves: { first: 260, every: 200, size: 4, tanks: 0.25 } },
+  { name: 'RED MESA', brief: 'Rugged desert tablelands. High ground everywhere.',
+    seed: 1707, shape: 'island', size: 0.85, biome: 'desert', hills: 1.9, ridges: 1, cities: [22], zones: 5, garrison: 2, patrols: 6,
+    waves: { first: 250, every: 200, size: 4, tanks: 0.4 } },
+  { name: 'GREEN HELL', brief: 'Thick jungle and muddy rivers. You will hear them before you see them.',
+    seed: 1808, shape: 'island', size: 0.85, biome: 'jungle', hills: 1, rivers: 2, forest: 1.3, cities: [22], zones: 5, garrison: 2, patrols: 7,
+    waves: { first: 240, every: 190, size: 5, tanks: 0.2 } },
+  { name: 'FROZEN STRAIT', brief: 'Two frozen islands joined by a narrow neck of land.',
+    seed: 1909, shape: 'twin', isthmus: true, size: 1.25, axis: 35, biome: 'snow', hills: 1.1, forest: 1.2, cities: [22], zones: 5, garrison: 2, patrols: 6,
+    waves: { first: 240, every: 190, size: 5, tanks: 0.34 } },
+  { name: 'THE ARCHIPELAGO', brief: 'Five tropical islands. The helicopter is the only way between most of them.',
+    seed: 2010, shape: 'archipelago', islands: 5, size: 1, biome: 'tropical', hills: 0.9, cities: [22], zones: 6, garrison: 2, patrols: 6,
+    waves: { first: 240, every: 180, size: 5, tanks: 0.25 } },
+  { name: 'OASIS LINE', brief: 'A wide desert dotted with oases. Long sightlines for their guns.',
+    seed: 2111, shape: 'continent', size: 0.9, biome: 'desert', hills: 1.3, lakes: 0.5, cities: [28], zones: 6, garrison: 3, patrols: 7,
+    waves: { first: 220, every: 180, size: 5, tanks: 0.4 } },
+  { name: 'DELTA', brief: 'A river delta: rivers everywhere, jungle in the south, fields in the north.',
+    seed: 2212, shape: 'continent', size: 0.88, axis: 45, biome: ['grass', 'jungle'], hills: 0.6, rivers: 5, cities: [28], zones: 6, garrison: 3, patrols: 7,
+    waves: { first: 220, every: 170, size: 5, tanks: 0.3 } },
+  { name: 'HIGHLAND PASS', brief: 'Two mountain ranges and the passes between them.',
+    seed: 2313, shape: 'island', size: 0.95, biome: 'rock', hills: 1.4, ridges: 2, ridgeWidth: 10, forest: 1.2, cities: [22], zones: 6, garrison: 3, patrols: 8,
+    waves: { first: 210, every: 170, size: 5, tanks: 0.34 } },
+  { name: 'METRO', brief: 'A sprawling city region. Every block is a fight.',
+    seed: 2414, shape: 'island', size: 0.95, biome: 'grass', hills: 0.4, cities: [36, 36, 28, 22], zones: 6, garrison: 3, patrols: 6,
+    waves: { first: 210, every: 160, size: 6, tanks: 0.3 } },
+  { name: 'CRESCENT BAY', brief: 'A curved coastline around a sheltered bay. Beaches, dunes and fields.',
+    seed: 2515, shape: 'crescent', size: 1, axis: 300, biome: ['desert', 'grass'], hills: 0.9, cities: [28], zones: 7, garrison: 3, patrols: 8,
+    waves: { first: 200, every: 160, size: 6, tanks: 0.34 } },
+  { name: 'GLACIER', brief: 'A frozen continent. Mountains, ice fields and a hard enemy.',
+    seed: 2616, shape: 'continent', size: 0.92, biome: 'snow', hills: 1.3, ridges: 2, forest: 1.1, cities: [22], zones: 7, garrison: 3, patrols: 8,
+    waves: { first: 200, every: 160, size: 6, tanks: 0.4 } },
+  { name: 'SANDSEA', brief: 'Endless desert and heavy armour. Their tanks own the open ground.',
+    seed: 2717, shape: 'continent', size: 1, biome: 'desert', hills: 1.1, cities: [28, 22], zones: 7, garrison: 4, patrols: 9,
+    waves: { first: 190, every: 150, size: 6, tanks: 0.55 } },
+  { name: 'MONSOON', brief: 'A chain of jungle islands in a stormy sea.',
+    seed: 2818, shape: 'archipelago', islands: 6, size: 1.05, biome: 'jungle', hills: 1.1, rivers: 1, forest: 1.2, cities: [22], zones: 7, garrison: 3, patrols: 8,
+    waves: { first: 190, every: 150, size: 6, tanks: 0.25 } },
+  { name: 'BORDERLANDS', brief: 'Where the desert meets the farmland, cut by a river.',
+    seed: 2919, shape: 'continent', size: 0.95, axis: 0, biome: ['desert', 'rock', 'grass'], hills: 1, rivers: 1, cities: [28, 22], zones: 7, garrison: 4, patrols: 9,
+    waves: { first: 190, every: 150, size: 7, tanks: 0.4 } },
+  { name: 'IRON COAST', brief: 'A cold rocky peninsula of fortified bases.',
+    seed: 3020, shape: 'peninsula', size: 1, axis: 200, biome: ['snow', 'rock'], hills: 1.4, ridges: 1, cities: [28], zones: 8, garrison: 4, patrols: 9,
+    waves: { first: 180, every: 140, size: 7, tanks: 0.45 } },
+  { name: 'LAKE COUNTRY', brief: 'Green country full of lakes and forest. Armour must go around.',
+    seed: 3121, shape: 'continent', size: 0.95, biome: 'grass', hills: 0.9, lakes: 0.9, forest: 1.6, cities: [28, 22], zones: 8, garrison: 4, patrols: 10,
+    waves: { first: 180, every: 140, size: 7, tanks: 0.35 } },
+  { name: 'CANYON RUN', brief: 'A desert river canyon walled by mountains.',
+    seed: 3222, shape: 'long', size: 1.35, axis: 25, biome: 'desert', hills: 1.6, ridges: 2, ridgeAxis: 25, rivers: 1, cities: [22], zones: 8, garrison: 4, patrols: 10,
+    waves: { first: 170, every: 135, size: 7, tanks: 0.5 } },
+  { name: 'TWIN CITIES', brief: 'Two islands, a city on each. Clear one, then cross the water.',
+    seed: 3323, shape: 'twin', size: 1.3, axis: 120, biome: 'grass', hills: 0.6, cities: [36, 36], zones: 8, garrison: 4, patrols: 8,
+    waves: { first: 170, every: 135, size: 7, tanks: 0.35 } },
+  { name: 'NORTHERN FRONT', brief: 'Fight north from the fields into the snow.',
+    seed: 3424, shape: 'continent', size: 1, axis: 225, biome: ['snow', 'rock', 'grass'], hills: 1.2, ridges: 2, rivers: 1, cities: [28, 22], zones: 8, garrison: 4, patrols: 11,
+    waves: { first: 170, every: 130, size: 8, tanks: 0.45 } },
+  { name: 'JUNGLE FORTRESS', brief: 'Dense jungle hills hiding a strong enemy.',
+    seed: 3525, shape: 'continent', size: 0.95, biome: 'jungle', hills: 1.5, ridges: 1, rivers: 2, forest: 1.3, cities: [28], zones: 9, garrison: 4, patrols: 12,
+    waves: { first: 160, every: 125, size: 8, tanks: 0.35 } },
+  { name: 'THREE KINGDOMS', brief: 'Three big islands: desert, jungle and ice.',
+    seed: 3626, shape: 'archipelago', islands: 3, size: 1.05, axis: 90, biome: ['snow', 'jungle', 'desert'], hills: 1.2, cities: [28, 22], zones: 9, garrison: 4, patrols: 11,
+    waves: { first: 160, every: 125, size: 8, tanks: 0.4 } },
+  { name: 'URBAN SPRAWL', brief: 'Five cities and the roads between them.',
+    seed: 3727, shape: 'continent', size: 1, biome: ['grass', 'desert'], hills: 0.7, cities: [36, 36, 28, 28, 22], zones: 9, garrison: 5, patrols: 10,
+    waves: { first: 150, every: 120, size: 8, tanks: 0.45 } },
+  { name: 'DRAGON SPINE', brief: 'A long island with a great ridge down its back.',
+    seed: 3828, shape: 'long', size: 1.35, axis: 150, biome: ['grass', 'jungle', 'tropical'], hills: 1.4, ridges: 1, ridgeAxis: 150, ridgeWidth: 12, rivers: 2, cities: [28, 22], zones: 9, garrison: 5, patrols: 12,
+    waves: { first: 150, every: 115, size: 9, tanks: 0.45 } },
+  { name: 'ATOLL CHAIN', brief: 'A huge ring of islands. They will come at you from every side.',
+    seed: 3929, shape: 'atoll', size: 1.1, biome: ['tropical', 'desert'], hills: 1, rivers: 2, cities: [22, 22], zones: 10, garrison: 5, patrols: 12,
+    waves: { first: 140, every: 110, size: 9, tanks: 0.45 } },
+  { name: 'FINAL STRIKE', brief: 'Everything they have, on a continent of every terrain.',
+    seed: 4030, shape: 'continent', size: 1.05, biome: 'classic', hills: 1.3, ridges: 2, rivers: 2, cities: [36, 28, 22], zones: 10, garrison: 5, patrols: 14,
+    waves: { first: 130, every: 100, size: 10, tanks: 0.5 } },
+];
+MAPS.forEach((m, k) => { m.id = k + 1; });
+
+// ---------------------------------------------------------------------------
+// Campaign: play the 30 maps in src/maps.js. Each map is a battle that is saved as you go, in this browser
+// and (if set up) in a private GitHub repository, so either player can carry it on, together or alone.
+//  - Zones: every enemy base holds a zone. A zone is yours once nothing of the enemy's there is left alive.
+//  - Counter-attacks: the zones the enemy still holds send waves at your zones and your home base. Ground
+//    waves find their way with a flow field; gunships fly straight. A zone the enemy reaches again is retaken.
+//  - The map is won when every enemy unit and structure is gone. Winning unlocks the next map.
+// ---------------------------------------------------------------------------
+ENEMY.gunship = { name: 'GUNSHIP', hp: 160, range: 640, rate: 1.4, dmg: 12, hit: 50, speed: 120, shot: 1100, score: 400, radius: 30, z: 35, boom: 34, air: true };
+
+let campaign = null;          // { id, spec, elapsed, waveClock, waves, won, nSpawn } while a campaign map is being played
+const SAVE_V = 1;
+const mapKey = (id) => 'strike.v1.map.' + id;
+const PROG_KEY = 'strike.v1.progress';
+const lsGet = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (err) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (err) { /* storage full or blocked */ } };
+
+// --- progress: which maps are unlocked, won, and how far along -------------------------------------------
+function loadProgress() { return Object.assign({ unlocked: 1, won: [], pct: {}, last: 1, t: 0 }, lsGet(PROG_KEY) || {}); }
+function mergeProgress(a, b) {
+  if (!a) return b; if (!b) return a;
+  const pct = Object.assign({}, a.pct);
+  for (const k in b.pct) pct[k] = Math.max(pct[k] || 0, b.pct[k]);
+  const newer = (b.t || 0) > (a.t || 0) ? b : a;
+  return { unlocked: Math.max(a.unlocked, b.unlocked), won: [...new Set([...a.won, ...b.won])].sort((x, y) => x - y), pct, last: newer.last, t: Math.max(a.t || 0, b.t || 0) };
+}
+function saveProgress(p) { p.t = Date.now(); lsSet(PROG_KEY, p); cloudQueue('progress', p); }
+
+// --- one map's battle state -----------------------------------------------------------------------------------
+function captureState() {
+  if (!campaign) return null;
+  const n = campaign.nSpawn;
+  return {
+    v: SAVE_V, id: campaign.id, t: Date.now(), elapsed: Math.round(campaign.elapsed), wave: Math.round(campaign.waveClock), waves: campaign.waves, won: campaign.won,
+    cells: [...changedCells].map((i) => [i, world.small[i], world.large[i]]),
+    ek: enemies.slice(0, n).map((e, k) => (e.alive ? -1 : k)).filter((k) => k >= 0),
+    tk: world.targets.map((t, k) => (t.alive ? -1 : k)).filter((k) => k >= 0),
+    pk: pickups.map((p, k) => (p.taken ? k : -1)).filter((k) => k >= 0),
+    extra: enemies.slice(n).filter((e) => e.alive).map(packExtra),
+  };
+}
+const packExtra = (e) => [e.type, Math.round(e.x), Math.round(e.y), e.base, e.goal ? e.goal.zone : -9, Math.round(e.hp)];
+function unpackExtra(a) {
+  const [type, x, y, base, gz, hp] = a;
+  const e = makeEnemy(type, x, y, base);
+  e.hp = hp || e.hp;
+  if (gz !== -9) setGoal(e, gz);
+  return e;
+}
+function makeEnemy(type, x, y, base) {
+  const def = ENEMY[type];
+  return { type, hp: def.hp, alive: true, x, y, h: rand(0, Math.PI * 2), th: 0, cool: rand(0.5, def.rate + 1), base, phase: rand(0, 4), engaged: false, wave: true };
+}
+// Merge two saves of the same map: whatever either of you destroyed stays destroyed.
+function mergeStates(a, b) {
+  if (!a) return b; if (!b) return a;
+  const [older, newer] = (a.t || 0) > (b.t || 0) ? [b, a] : [a, b];
+  const cells = new Map(older.cells.map((c) => [c[0], c]));
+  for (const c of newer.cells) cells.set(c[0], c);
+  const u = (x, y) => [...new Set([...(x || []), ...(y || [])])];
+  return {
+    v: SAVE_V, id: newer.id, t: newer.t, elapsed: Math.max(older.elapsed || 0, newer.elapsed || 0), wave: newer.wave, waves: Math.max(older.waves || 0, newer.waves || 0),
+    won: !!(older.won || newer.won), cells: [...cells.values()], ek: u(older.ek, newer.ek), tk: u(older.tk, newer.tk), pk: u(older.pk, newer.pk), extra: newer.extra || [],
+  };
+}
+// Apply a save to a freshly generated map.
+function applyState(st) {
+  for (const [i, s, l] of st.cells || []) { world.small[i] = s; world.large[i] = l; changedCells.add(i); }
+  for (const k of st.ek || []) if (enemies[k]) enemies[k].alive = false;
+  for (const k of st.tk || []) if (world.targets[k]) world.targets[k].alive = false;
+  for (const k of st.pk || []) if (pickups[k]) pickups[k].taken = true;
+  for (const a of st.extra || []) enemies.push(unpackExtra(a));
+  campaign.elapsed = st.elapsed || 0; campaign.waveClock = st.wave || 0; campaign.waves = st.waves || 0; campaign.won = !!st.won;
+  recountTargets();
+}
+// Apply what another save knows on top of the live battle (cloud save or the other player's device).
+function applyDelta(st) {
+  if (!st || !campaign || st.id !== campaign.id) return 0;
+  let n = 0;
+  for (const [i, s, l] of st.cells || []) if (world.small[i] !== s || world.large[i] !== l) { world.small[i] = s; world.large[i] = l; cellChanged(i); n++; }
+  for (const k of st.ek || []) { const e = enemies[k]; if (e && e.alive && k < campaign.nSpawn) { e.alive = false; if (role === 'host') netSend({ t: 'ekill', k }); n++; } }
+  for (const k of st.tk || []) { const t = world.targets[k]; if (t && t.alive) { t.alive = false; if (role === 'host') netSend({ t: 'tkill', k }); n++; } }
+  for (const k of st.pk || []) { const p = pickups[k]; if (p && !p.taken) { p.taken = true; if (role === 'host') netSend({ t: 'pick', k }); } }
+  if (st.won) campaign.won = true;
+  campaign.elapsed = Math.max(campaign.elapsed, st.elapsed || 0);
+  recountTargets();
+  return n;
+}
+function recountTargets() { targetsLeft = world.targets.filter((t) => t.alive).length + enemies.filter((e) => e.alive && e.type !== 'inf').length; }
+const enemyLeft = () => world.targets.filter((t) => t.alive).length + enemies.filter((e) => e.alive).length;
+function progressPct() {
+  const total = world.targets.length + campaign.nSpawn;
+  return total ? Math.round(100 * (1 - Math.min(total, enemyLeft()) / total)) : 0;
+}
+
+// --- starting a map --------------------------------------------------------------------------------------------
+function startMap(id, opts) {
+  opts = opts || {};
+  const spec = MAPS[id - 1];
+  if (!spec) return;
+  campaign = { id, spec, elapsed: 0, waveClock: 0, waves: 0, won: false, nSpawn: 0, saveClock: 0, zoneHeld: [], announced: false };
+  newWorld(spec.seed, null, spec);
+  campaign.nSpawn = enemies.length;
+  const local = lsGet(mapKey(id));
+  if (opts.state) applyState(mergeStates(local, opts.state));
+  else if (local) applyState(local);
+  campaign.zoneHeld = world.bases.map((_, bi) => zoneHeld(bi));
+  const prog = loadProgress(); prog.last = id; saveProgress(prog);
+  if (role !== 'guest') {
+    say(campaign.won ? 'MAP ' + id + ' ' + spec.name + ': CLEARED' : 'MAP ' + id + ': ' + spec.name, 5);
+    if (role === 'host') netHello();
+    cloudPull(id);
+  }
+}
+function startFreePlay(s) { campaign = null; newWorld(s === undefined ? Math.floor(Math.random() * 100000) : s); }
+
+// --- zones -------------------------------------------------------------------------------------------------------------
+function zoneHeld(bi) { return baseAlive(bi) || enemies.some((e) => e.alive && e.base === bi); }
+const zoneCentre = (bi) => { const b = world.bases[bi]; return { cx: b.x + 6, cy: b.y + 6, x: cellX(b.x + 5.5, b.y + 5.5), y: cellY(b.x + 5.5, b.y + 5.5) }; };
+function updateZones() {
+  world.bases.forEach((b, bi) => {
+    const held = zoneHeld(bi);
+    if (held === campaign.zoneHeld[bi]) return;
+    campaign.zoneHeld[bi] = held;
+    if (!held) { for (const pl of players) if (pl.active) pl.score += 1500; say('ZONE TAKEN. ' + campaign.zoneHeld.filter((h) => !h).length + ' OF ' + world.bases.length + ' ARE YOURS', 5); }
+    else say('THE ENEMY HAS RETAKEN A ZONE', 5);
+    autosave(true);
+  });
+  if (!campaign.won && enemyLeft() === 0) {
+    campaign.won = true;
+    for (const pl of players) if (pl.active) pl.score += 10000;
+    say('MAP CLEARED. NONE OF THEM ARE LEFT', 8);
+    const prog = loadProgress();
+    if (!prog.won.includes(campaign.id)) prog.won.push(campaign.id);
+    prog.unlocked = Math.max(prog.unlocked, Math.min(MAPS.length, campaign.id + 1));
+    prog.pct[campaign.id] = 100;
+    saveProgress(prog);
+    autosave(true);
+    if (role === 'host') netSend({ t: 'won', id: campaign.id });
+    setTimeout(() => openMaps('won'), 3500);
+  }
+}
+
+// --- counter-attacks -------------------------------------------------------------------------------------------------
+const flowCache = new Map();
+let flowWorld = null;
+// Steps from every cell to the goal cell, for ground units (tanks' rules). 65535 = cannot get there.
+function flowTo(gx, gy) {
+  if (flowWorld !== world) { flowCache.clear(); flowWorld = world; }
+  const key = gy * SIZE + gx;
+  let f = flowCache.get(key);
+  if (f) return f;
+  const N = SIZE * SIZE, pass = new Uint8Array(N);
+  for (let y = 1; y < SIZE - 1; y++) for (let x = 1; x < SIZE - 1; x++) pass[y * SIZE + x] = !cellBlocks('tank', x, y) && steepAt(cellX(x, y), cellY(x, y)) <= MAX_CLIMB.tank ? 1 : 0;
+  f = new Uint16Array(N).fill(65535);
+  const q = new Int32Array(N);
+  let h = 0, t = 0;
+  // the goal area (a base is full of buildings): seed every passable cell within 3 of the goal
+  for (let y = gy - 3; y <= gy + 3; y++) for (let x = gx - 3; x <= gx + 3; x++) { const i = y * SIZE + x; if (x > 0 && y > 0 && x < SIZE - 1 && y < SIZE - 1 && pass[i]) { f[i] = 0; q[t++] = i; } }
+  while (h < t) {
+    const i = q[h++], d = f[i] + 1;
+    for (const o of [1, -1, SIZE, -SIZE]) { const j = i + o; if (pass[j] && f[j] > d) { f[j] = d; q[t++] = j; } }
+  }
+  if (flowCache.size > 24) flowCache.clear();
+  flowCache.set(key, f);
+  return f;
+}
+function setGoal(e, zone) {
+  const c = zone >= 0 ? zoneCentre(zone) : { cx: world.home.x, cy: world.home.y, x: cellX(world.home.x - 0.5, world.home.y - 0.5), y: cellY(world.home.x - 0.5, world.home.y - 0.5) };
+  e.goal = { zone, cx: c.cx, cy: c.cy, x: c.x, y: c.y };
+}
+function launchWave() {
+  const w = campaign.spec.waves, held = world.bases.map((_, bi) => bi).filter((bi) => campaign.zoneHeld[bi]);
+  if (!held.length) return;
+  const marching = enemies.filter((e) => e.alive && e.goal).length;
+  if (marching >= w.size * 2) return;                          // do not let waves pile up forever
+  const from = held[Math.floor(Math.random() * held.length)], o = zoneCentre(from);
+  // nearest of your zones (or your home base), reachable by land if possible
+  const mine = world.bases.map((_, bi) => bi).filter((bi) => !campaign.zoneHeld[bi]);
+  const goals = mine.map((bi) => ({ zone: bi, d: Math.hypot(zoneCentre(bi).cx - o.cx, zoneCentre(bi).cy - o.cy) }));
+  goals.push({ zone: -1, d: Math.hypot(world.home.x - o.cx, world.home.y - o.cy) * 1.15 });
+  goals.sort((a, b) => a.d - b.d);
+  let goal = null, byLand = false;
+  for (const g of goals.slice(0, 3)) {
+    const c = g.zone >= 0 ? zoneCentre(g.zone) : { cx: world.home.x, cy: world.home.y };
+    const f = flowTo(c.cx, c.cy);
+    let ok = false;
+    for (let y = o.cy - 9; y <= o.cy + 9 && !ok; y++) for (let x = o.cx - 9; x <= o.cx + 9 && !ok; x++) if (f[y * SIZE + x] < 65535) ok = true;
+    if (ok) { goal = g; byLand = true; break; }
+  }
+  if (!goal) goal = goals[0];
+  const n = w.size, air = byLand ? Math.round(n * (campaign.id >= 10 ? 0.2 : 0)) : Math.ceil(n / 3);
+  const tanks = byLand ? Math.round((n - air) * w.tanks) : 0, inf = byLand ? n - air - tanks : 0;
+  const spots = [];
+  for (let k = 7; k <= 10 && spots.length < tanks + inf; k++) for (let y = o.cy - k; y <= o.cy + k; y++) for (let x = o.cx - k; x <= o.cx + k; x++) {
+    if (Math.max(Math.abs(x - o.cx), Math.abs(y - o.cy)) !== k || cellBlocks('tank', x, y)) continue;
+    spots.push([x, y]);
+  }
+  spots.sort(() => Math.random() - 0.5);
+  const add = (type, cx, cy) => {
+    const e = makeEnemy(type, cellX(cx, cy), cellY(cx, cy), -1);
+    setGoal(e, goal.zone);
+    enemies.push(e);
+    if (role === 'host') netSend({ t: 'enew', a: packExtra(e) });
+  };
+  let k = 0;
+  for (let j = 0; j < tanks && k < spots.length; j++, k++) add('tank', spots[k][0], spots[k][1]);
+  for (let j = 0; j < inf && k < spots.length; j++, k++) add('inf', spots[k][0], spots[k][1]);
+  for (let j = 0; j < air; j++) add('gunship', o.cx + rand(-3, 3), o.cy + rand(-3, 3));
+  campaign.waves++;
+  recountTargets();
+  say(goal.zone >= 0 ? 'COUNTER-ATTACK INBOUND ON ONE OF YOUR ZONES' : 'COUNTER-ATTACK INBOUND ON HOME BASE', 5);
+}
+// Called from updateEnemies for a unit that is marching somewhere.
+function moveWave(e, dt) {
+  const def = ENEMY[e.type], g = e.goal;
+  const arrive = () => {
+    if (g.zone >= 0) e.base = g.zone; else e.base = -2;            // -2: besieging your home base
+    e.goal = null;
+  };
+  let want;
+  if (def.air) {
+    if (gdist(e.x, e.y, g.x, g.y) < 90) { if (e.arrived && g.zone < 0) siegeHome(e, dt); e.h += dt * 0.6; e.x += Math.cos(e.h) * def.speed * 0.4 * dt; e.y += Math.sin(e.h) * def.speed * 0.2 * dt; if (!e.arrived) { e.arrived = true; arrive(); e.goal = g; } return; }
+    want = gangle(e.x, e.y, g.x, g.y);
+  } else {
+    const cx = Math.round(mapX(e.x, e.y)), cy = Math.round(mapY(e.x, e.y));
+    const f = flowTo(g.cx, g.cy), here = f[cy * SIZE + cx];
+    if (here === 0 || gdist(e.x, e.y, g.x, g.y) < 150) { arrive(); return; }
+    let best = here, bx = cx, by = cy;
+    for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const v = f[(cy + oy) * SIZE + cx + ox]; if (v < best) { best = v; bx = cx + ox; by = cy + oy; } }
+    want = best < here ? gangle(e.x, e.y, cellX(bx, by), cellY(bx, by)) : gangle(e.x, e.y, g.x, g.y);
+  }
+  e.h = rotateToward(e.h, want, (e.type === 'tank' ? 1.6 : 5) * dt);
+  const speed = def.speed * (Math.abs(angDiff(e.h, want)) < 0.6 ? 1 : 0.3) * (def.air ? 1 : 1.25);
+  const nx = e.x + Math.cos(e.h) * speed * dt, ny = e.y + Math.sin(e.h) * speed * 0.5 * dt;
+  if (def.air || !posBlocks(e.type === 'tank' ? 'tank' : 'foot', nx, ny)) { e.x = nx; e.y = ny; }
+  else { e.h += (Math.random() < 0.5 ? 1 : -1) * 0.8; }
+  e.phase += dt * 7;
+  if (e.type === 'tank') { e.th = rotateToward(e.th, e.h, 1.5 * dt); if (Math.random() < dt * 5) puff('dust', e.x - Math.cos(e.h) * 16, e.y - Math.sin(e.h) * 8, 1, { r: 3, life: 0.9, c: '#a89878', a: 0.28, vz: 4 }); }
+}
+// Units besieging your home base shoot at its buildings when nobody is in range to shoot at.
+function siegeHome(e, dt) {
+  e.siege = (e.siege || rand(2, 5)) - dt;
+  if (e.siege > 0) return;
+  e.siege = rand(3, 6);
+  const hb = world.homeBase, x = hb.x + rand(1, 11), y = hb.y + rand(1, 11);
+  const px = cellX(x, y), py = cellY(x, y);
+  addShot({ enemy: true, kind: e.type, pi: -1, x0: e.x, y0: e.y, z0: ENEMY[e.type].z, x1: px, y1: py, z1: 4, t: 0, T: Math.max(0.1, gdist(e.x, e.y, px, py) / ENEMY[e.type].shot), dmg: 0, hit: 0, x: e.x, y: e.y, z: ENEMY[e.type].z, siege: { blast: 30, dmg: ENEMY[e.type].dmg * 2 } });
+  if (!campaign.siegeSaid || time > campaign.siegeSaid) { campaign.siegeSaid = time + 30; say('HOME BASE UNDER ATTACK', 4); }
+}
+const homeUnderAttack = () => campaign && enemies.some((e) => e.alive && e.base === -2 && Math.hypot(mapX(e.x, e.y) - world.home.x, mapY(e.x, e.y) - world.home.y) < 14);
+
+// --- the campaign clock (host / solo only) -----------------------------------------------------------------------------
+function updateCampaign(dt) {
+  if (!campaign) return;
+  campaign.elapsed += dt;
+  campaign.saveClock += dt;
+  if (Math.floor(campaign.elapsed) !== Math.floor(campaign.elapsed - dt)) updateZones();
+  const w = campaign.spec.waves;
+  if (w && !campaign.won) {
+    campaign.waveClock += dt;
+    if (campaign.waveClock >= (campaign.waves ? w.every : w.first)) { campaign.waveClock = 0; launchWave(); }
+  }
+  if (campaign.saveClock > 10) autosave(false);
+}
+function autosave(important) {
+  if (!campaign) return;
+  campaign.saveClock = 0;
+  const st = captureState();
+  lsSet(mapKey(campaign.id), st);
+  const prog = loadProgress();
+  if (!campaign.won) { prog.pct[campaign.id] = Math.max(prog.pct[campaign.id] || 0, progressPct()); lsSet(PROG_KEY, Object.assign(prog, { t: Date.now() })); }
+  if (role !== 'guest') { cloudQueue('map-' + campaign.id, st, important); if (important) cloudQueue('progress', loadProgress(), true); }
+}
+addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { autosave(true); cloudFlush(true); } });
+addEventListener('pagehide', () => { autosave(true); cloudFlush(true); });
+
+// --- cloud save: a private GitHub repository ------------------------------------------------------------------------------
+// Settings live in this browser only: { repo: 'owner/name', token }. Files: map-<id>.json and progress.json.
+const CLOUD_KEY = 'strike.v1.cloud';
+const cloudCfg = () => { const c = lsGet(CLOUD_KEY); return c && c.repo && c.token ? c : null; };
+const cloudState = { pending: new Map(), sha: new Map(), last: 0, busy: false, status: '' };
+const b64enc = (s) => btoa(unescape(encodeURIComponent(s)));
+const b64dec = (s) => decodeURIComponent(escape(atob(s.replace(/\s/g, ''))));
+async function cloudGet(name) {
+  const c = cloudCfg(); if (!c) return null;
+  const r = await fetch('https://api.github.com/repos/' + c.repo + '/contents/' + name + '.json?t=' + Date.now(), { headers: { Authorization: 'Bearer ' + c.token, Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+  if (r.status === 404) { cloudState.sha.delete(name); return null; }
+  if (!r.ok) throw new Error('GitHub answered ' + r.status);
+  const j = await r.json();
+  cloudState.sha.set(name, j.sha);
+  return JSON.parse(b64dec(j.content));
+}
+async function cloudPut(name, data, keepalive) {
+  const c = cloudCfg(); if (!c) return;
+  const body = { message: 'save ' + name, content: b64enc(JSON.stringify(data)) };
+  const sha = cloudState.sha.get(name); if (sha) body.sha = sha;
+  const r = await fetch('https://api.github.com/repos/' + c.repo + '/contents/' + name + '.json', { method: 'PUT', keepalive: !!keepalive, headers: { Authorization: 'Bearer ' + c.token, Accept: 'application/vnd.github+json' }, body: JSON.stringify(body) });
+  if (r.status === 409 || r.status === 422) return 'conflict';
+  if (!r.ok) throw new Error('GitHub answered ' + r.status);
+  const j = await r.json();
+  cloudState.sha.set(name, j.content.sha);
+  return 'ok';
+}
+// Save = read what is there, merge ours in, write it back (retry once if someone else wrote in between).
+async function cloudSync(name, data) {
+  const merge = name === 'progress' ? mergeProgress : mergeStates;
+  for (let tries = 0; tries < 2; tries++) {
+    const remote = await cloudGet(name);
+    const out = merge(remote, data);
+    if ((await cloudPut(name, out)) === 'ok') return out;
+  }
+  return null;
+}
+function cloudQueue(name, data, now) {
+  if (!cloudCfg() || !data) return;
+  cloudState.pending.set(name, data);
+  if (now || Date.now() - cloudState.last > 45000) cloudFlush(false);
+}
+async function cloudFlush(leaving) {
+  if (!cloudCfg() || cloudState.busy || !cloudState.pending.size) return;
+  if (leaving) {                                        // the page is closing: one quick write each, no read first
+    for (const [name, data] of cloudState.pending) cloudPut(name, data, true).catch(() => {});
+    cloudState.pending.clear();
+    return;
+  }
+  cloudState.busy = true; cloudState.last = Date.now();
+  try {
+    for (const [name, data] of [...cloudState.pending]) { cloudState.pending.delete(name); await cloudSync(name, data); }
+    cloudState.status = 'SAVED ' + new Date().toLocaleTimeString().slice(0, 5);
+  } catch (err) { cloudState.status = 'CLOUD SAVE FAILED: ' + String(err.message || err); }
+  cloudState.busy = false;
+}
+// Pull the cloud copy of this map (and progress) and fold in anything the other player did meanwhile.
+async function cloudPull(id) {
+  if (!cloudCfg()) return;
+  try {
+    const prog = await cloudGet('progress');
+    if (prog) lsSet(PROG_KEY, mergeProgress(loadProgress(), prog));
+    const st = await cloudGet('map-' + id);
+    if (st && campaign && campaign.id === id) {
+      const n = applyDelta(st);
+      if (n) say('LOADED THE LATEST BATTLE FROM THE CLOUD', 4);
+      if (st.won) campaign.won = true;
+    }
+    cloudState.status = 'CLOUD OK';
+  } catch (err) { cloudState.status = 'CLOUD UNREACHABLE'; }
+}
+
+// --- the MAPS screen ----------------------------------------------------------------------------------------------------------
+function openMaps(why) { keys.clear(); $('camp').hidden = false; mapsScreen(why); }
+function closeMaps() { $('camp').hidden = true; grabFocus(); }
+function mapsScreen(why) {
+  const body = $('camp-body'), prog = loadProgress();
+  if (role === 'guest') {
+    body.innerHTML = '<p>Player 1 picks the map. ' + (campaign ? 'You are playing map ' + campaign.id + ': ' + campaign.spec.name + '.' : '') + '</p>';
+    return;
+  }
+  const rows = MAPS.map((m) => {
+    const open = m.id <= prog.unlocked, won = prog.won.includes(m.id), pct = prog.pct[m.id] || 0, cur = campaign && campaign.id === m.id;
+    const tag = won ? 'CLEARED' : !open ? 'LOCKED' : pct ? pct + '%' : 'NEW';
+    return '<button class="map' + (open ? '' : ' locked') + (cur ? ' cur' : '') + '" data-id="' + m.id + '"' + (open ? '' : ' disabled') + '><span class="n">' + m.id + '</span><b>' + m.name + '</b><span class="tag">' + tag + '</span><br><span class="brief">' + (open ? m.brief : '') + '</span></button>';
+  }).join('');
+  const head = why === 'won' ? '<p class="win">MAP CLEARED. ' + (campaign && campaign.id < MAPS.length ? 'Map ' + (campaign.id + 1) + ' is unlocked.' : 'That was the last one. You won the campaign.') + '</p>' : '';
+  const c = cloudCfg();
+  body.innerHTML = head + '<div class="maps">' + rows + '</div>' +
+    '<div class="row"><button id="camp-free">FREE PLAY</button><button id="camp-place">REAL PLACE</button><button id="camp-cloud">CLOUD SAVE: ' + (c ? 'ON' : 'OFF') + '</button></div>' +
+    '<p class="fine">' + (c ? 'Saving to ' + c.repo + '. ' + (cloudState.status || '') : 'Saves stay in this browser until cloud save is set up.') + '</p>';
+  for (const b of body.querySelectorAll('button.map')) b.onclick = () => { closeMaps(); startMap(+b.dataset.id); };
+  $('camp-free').onclick = () => { closeMaps(); startFreePlay(); };
+  $('camp-place').onclick = () => { closeMaps(); openPlace(); };
+  $('camp-cloud').onclick = () => cloudScreen();
+  const cur = body.querySelector('button.cur') || body.querySelector('button.map:not(.locked):last-of-type');
+  if (cur) cur.scrollIntoView({ block: 'center' });
+}
+function cloudScreen() {
+  const body = $('camp-body'), c = lsGet(CLOUD_KEY) || {};
+  const guess = /\.github\.io$/.test(location.hostname) ? location.hostname.split('.')[0] + '/strike-saves' : '';
+  body.innerHTML = '<p>Cloud save keeps the campaign in a private GitHub repository, so either player can carry on the battle on any device.</p>' +
+    '<label>REPOSITORY<br><input id="cloud-repo" type="text" value="' + (c.repo || guess) + '" placeholder="owner/strike-saves"></label>' +
+    '<label>ACCESS KEY<br><input id="cloud-token" type="password" value="' + (c.token || '') + '" placeholder="github_pat_..." autocomplete="off"></label>' +
+    '<div class="row"><button id="cloud-save">SAVE AND TEST</button><button id="cloud-off">TURN OFF</button><button id="cloud-back">BACK</button></div><p id="cloud-status" class="err"></p>' +
+    '<p class="fine">The key stays in this browser only. Make it a fine-grained key that can only read and write the contents of that one repository.</p>';
+  $('cloud-back').onclick = () => mapsScreen();
+  $('cloud-off').onclick = () => { try { localStorage.removeItem(CLOUD_KEY); } catch (err) { /* ignore */ } mapsScreen(); };
+  $('cloud-save').onclick = async () => {
+    const repo = $('cloud-repo').value.trim().replace(/^https:\/\/github.com\//, '').replace(/\/$/, ''), token = $('cloud-token').value.trim();
+    $('cloud-status').textContent = 'Testing...';
+    lsSet(CLOUD_KEY, { repo, token });
+    try {
+      await cloudSync('progress', loadProgress());
+      lsSet(PROG_KEY, mergeProgress(loadProgress(), await cloudGet('progress')));
+      $('cloud-status').textContent = 'Working. The campaign now saves to ' + repo + '.';
+      if (campaign) { cloudPull(campaign.id); autosave(true); }
+    } catch (err) {
+      $('cloud-status').textContent = 'That did not work (' + String(err.message || err) + '). Check the repository name and that the key can read and write its contents.';
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Strike - Milestone 1: seeded open world + flyable helicopter.
 // The world renders at a fixed low resolution (540 px tall) and is scaled up by whole
 // numbers, so every game pixel stays a crisp square. Tiles are 64x32 isometric diamonds.
@@ -2301,10 +2969,11 @@ function setHeli(h, cx, cy) {
 }
 function snapCamera() { cam.x = heli.x; cam.y = heli.y - (VEH[player.kind].air ? 32 : 10) - (world && world.vh ? liftAt(heli.x, heli.y) : 0); }
 function placeHeli(cx, cy) { setHeli(heli, cx, cy); snapCamera(); }
-function newWorld(s, real) {
+function newWorld(s, real, spec) {
   seed = s;
   if (!real) currentPlace = null;
-  world = generateWorld(seed, real || null);
+  if (!spec && typeof campaign !== 'undefined') campaign = null;
+  world = generateWorld(seed, real || null, spec || null);
   slopeCache.clear();
   changedCells.clear();
   setHeli(helis[0], world.home.x - 0.5, world.home.y - 0.5);          // centre of the 2x2 helipad
@@ -2316,8 +2985,7 @@ function newWorld(s, real) {
   if (role === 'host') netHello();
 }
 function requestNewWorld() {
-  if (role === 'guest') { sayLocal('ONLY THE HOST CAN START A NEW WORLD'); return; }
-  newWorld(Math.floor(Math.random() * 100000));
+  openMaps();
 }
 
 // --- input ------------------------------------------------------------------------
@@ -2619,7 +3287,8 @@ function draw(dt) {
   }
   const dyn = collectDynamics(ox, oy);
   drawDynamicShadows(sg, dyn, ox, oy);
-  const flying = vehicles.filter((v) => v && v.alive && VEH[v.kind].air && v.alt > 3).sort((a, b) => a.y - b.y);
+  const ships = enemies.filter((e) => e.alive && e.type === 'gunship').map(gunshipView);
+  const flying = vehicles.filter((v) => v && v.alive && VEH[v.kind].air && v.alt > 3).concat(ships).sort((a, b) => a.y - b.y);
   for (const v of flying) heliShadow(sg, v, ox, oy);
   ctx.globalAlpha = CONFIG.shadowAlpha;
   ctx.drawImage(shadowCanvas, 0, 0);
@@ -2694,6 +3363,8 @@ function heliShadow(sg, v, ox, oy) {
   sg.drawImage(v.kind === 'scout' ? IMG.scout_shadow : IMG.heli_shadow, (f % HELI_SH.cols) * HELI_SH.w, ((f / HELI_SH.cols) | 0) * HELI_SH.h, HELI_SH.w, HELI_SH.h,
     Math.round(v.x - 52 * k) - ox - HELI_SH.ax, Math.round(v.y - 7.6 * k) - oy - HELI_SH.ay - liftAt(v.x + 52 * (1 - k), v.y + 7.6 * (1 - k)), HELI_SH.w, HELI_SH.h);
 }
+// An enemy gunship drawn with the helicopter code: dark paint, always up, no driver.
+const gunshipView = (e) => ({ kind: 'apache', sheet: 'heli_e', x: e.x, y: e.y, h: e.h, vx: Math.cos(e.h) * 60, vy: 0, alt: HELI_Z, by: -1, id: 7, alive: true });
 function drawHeliVehicle(v, ox, oy) {
   const frame = heliFrame(v.h), hx = Math.round(v.x) - ox, hy = Math.round(v.y) - oy + Math.round(heliDrop(v) - liftAt(v.x, v.y));
   if (hx < -140 || hy < -140 || hx > W + 140 || hy > H + 200) return;
@@ -2702,7 +3373,7 @@ function drawHeliVehicle(v, ox, oy) {
   const up = v.alt > 30, bob = up ? Math.round(Math.sin(time * 2.4 + v.id * 1.7) * 2) : 0;
   const pl = v.by >= 0 ? players[v.by] : null;
   if (pl && pl.hitFlash > 0 && Math.floor(time * 30) % 2) ctx.globalAlpha = 0.45;
-  const sheet = !v.alive ? IMG.heli_dead : v.kind === 'scout' ? IMG.scout : (v.by === 1 ? IMG.heli2 : IMG.heli);
+  const sheet = v.sheet ? IMG[v.sheet] : !v.alive ? IMG.heli_dead : v.kind === 'scout' ? IMG.scout : (v.by === 1 ? IMG.heli2 : IMG.heli);
   ctx.drawImage(sheet, (frame % HELI.cols) * HELI.size, row * HELI.size, HELI.size, HELI.size, hx - HELI.ax, hy - HELI.ay + bob, HELI.size, HELI.size);
   if (v.alive) {
     const turning = v.by >= 0 || v.alt > 1, rw = v.kind === 'scout' ? 150 : ROTOR.w, rh = v.kind === 'scout' ? 75 : ROTOR.h, hub = v.kind === 'scout' ? 49 : HELI.hub;
@@ -2725,9 +3396,9 @@ function drawHud() {
   const where = biome + '  ' + pad(cx, 3) + ',' + pad(cy, 3);
   panel([3, 3, where.length * FONT_W + 8, 13]);
   text(where, 7, 4, 'yellow');
-  const seedText = currentPlace ? currentPlace.name.slice(0, 22) : 'SEED ' + pad(seed, 5);
+  const seedText = campaign ? 'MAP ' + campaign.id + ' ' + campaign.spec.name : currentPlace ? currentPlace.name.slice(0, 22) : 'FREE PLAY ' + pad(seed, 5);
   text(seedText, UW - 83 - seedText.length * FONT_W, 4);
-  panel(newWorldRect()); text('NEW WORLD', UW - 67, 4);
+  panel(newWorldRect()); text('MAPS  (N)', UW - 70, 4);
   panel(modeRect()); text('CTL ' + controlMode, UW - 73, 19, 'cyan');
 
   drawCombatHud();
@@ -2773,8 +3444,8 @@ function initMaps() {
   }
   reveal(REVEAL_RADIUS);
 }
-function reveal(radius) {
-  const cx = Math.round(mapX(heli.x, heli.y)), cy = Math.round(mapY(heli.x, heli.y));
+function reveal(radius, atX, atY) {
+  const cx = atX !== undefined ? atX : Math.round(mapX(heli.x, heli.y)), cy = atY !== undefined ? atY : Math.round(mapY(heli.x, heli.y));
   const g = minimap.getContext('2d'), G = bigMap.getContext('2d');
   for (let y = Math.max(0, cy - radius); y <= Math.min(SIZE - 1, cy + radius); y++) for (let x = Math.max(0, cx - radius); x <= Math.min(SIZE - 1, cx + radius); x++) {
     const i = y * SIZE + x;
@@ -2880,10 +3551,13 @@ loadImages().then(() => {
   FONT.white = IMG.font; FONT.shadow = tinted(IMG.font, 'rgba(0,0,0,0.75)');
   FONT.yellow = tinted(IMG.font, '#fff0a0'); FONT.cyan = tinted(IMG.font, '#a0e0f0');
   for (const n of ['tank_hull', 'tank_turret', 'aa', 'tank_hull_f', 'tank_turret_f', 'jeep', 'heli']) IMG[n + '_dead'] = darkened(IMG[n]);
-  IMG.heli2 = recolored(IMG.heli, 'rgba(70,110,150,0.30)');      // the guest's helicopter: blue-grey
+  IMG.heli2 = recolored(IMG.heli, 'rgba(70,110,150,0.30)');
+  IMG.heli_e = recolored(recolored(IMG.heli, 'rgba(24,24,28,0.62)'), 'rgba(170,40,26,0.30)');   // enemy gunships: dark, with a red cast      // the guest's helicopter: blue-grey
   clouds = makeClouds();
   resize();
-  newWorld(seed);
+  const qs = new URLSearchParams(location.search);
+  if (qs.get('spot') || qs.has('free')) newWorld(seed);
+  else startMap(+qs.get('map') || loadProgress().last || 1);
   mpFromLink();
   // dev hook: strike.html?spot=city|snow|jungle|desert|base  (used for test screenshots)
   const spot = new URLSearchParams(location.search).get('spot');
