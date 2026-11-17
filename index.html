@@ -73,6 +73,14 @@
   #menu .snd span { width: 6em; text-align: left; color: #a0e0f0; letter-spacing: 1px; } #menu .snd button { margin: 0; flex: 0 0 5em; width: 5em; padding: 6px 4px; }
   #menu .snd input { flex: 1; accent-color: #c8e070; height: 28px; } #menu .snd input:disabled { opacity: 0.35; } #menu .snd b { width: 2.2em; text-align: right; color: #fff0a0; font-weight: normal; }
   #menu .shop { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  #menu p.note { margin: 2px 0 6px; padding: 5px 8px; background: rgba(120,230,255,0.12); border-left: 3px solid #78e6ff; color: #e8f6ff; font-size: 12px; }
+  #menu p.army { margin: 0 0 8px; color: #a0e0f0; font-size: 12px; }
+  #menu button.buy span.what { color: #e8ecd8; }
+  #menu .towers { display: flex; flex-direction: column; gap: 3px; }
+  #menu .trow { display: flex; align-items: center; gap: 4px; padding: 3px 6px; background: rgba(255,255,255,0.04); font-size: 11px; }
+  #menu .trow > span { flex: 1; text-align: left; } #menu .trow b { color: #a0e0f0; font-weight: normal; } #menu .trow.empty > span { color: #f0a080; }
+  #menu .trow em { color: #fff0a0; font-style: normal; font-size: 10px; }
+  #menu button.tbtn { display: inline-block; width: auto; margin: 0; padding: 3px 8px; font-size: 11px; } #menu button.tbtn:disabled { opacity: 0.45; }
   #menu button.buy { margin: 0; padding: 5px 8px; text-align: left; } #menu button.buy b { color: #a0e0f0; } #menu button.buy i { float: right; font-style: normal; color: #fff0a0; }
   #menu button.buy span { display: block; color: #a8b0a0; font-size: 11px; } #menu button.buy:disabled { opacity: 0.45; }
   #menu .fine { color: #8a948a; font-size: 11px; margin-top: 12px; }
@@ -2098,6 +2106,12 @@ function drawDynamicRow(list, ox, oy0) {
     const oy = oy0 - itemLift(it);
     if (it.k === 'enemy') {
       const e = it.e, x = Math.round(e.x - ox), y = Math.round(e.y - oy);
+      if (e.fresh > time && e.alive && e.side >= 0) {         // just bought: a pulsing ring under it, NEW over its head
+        const k = 0.5 + 0.5 * Math.sin(time * 8), r = isGroundVeh(e.type) ? 30 : 13;
+        ctx.strokeStyle = 'rgba(120,230,255,' + (0.4 + 0.5 * k) + ')'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.ellipse(x, y, r + k * 3, (r + k * 3) / 2, 0, 0, Math.PI * 2); ctx.stroke();
+        if (e.side === seatOf(me)) text('NEW', x - 6, y - (isGroundVeh(e.type) ? 58 : 44) - Math.round(k * 2), 'cyan');
+      }
       if (isGroundVeh(e.type)) drawArmour(e.type, e.side >= 0 ? '_f' : '', e.alive ? '' : '_dead', x, y, e.h, e.th, true);
       else if (e.type === 'aa') ctx.drawImage(e.alive ? IMG.aa : IMG.aa_dead, frame16(e.h) * 64, 0, 64, 72, x - 32, y - 50, 64, 72);
       else if (isZed(e.type)) drawZombie(e, x, y);
@@ -2429,7 +2443,7 @@ function netMessage(m) {
     if (m.t === 'act') { interact(1); return; }
     if (m.t === 'kit') { setKit(1, m.k); return; }
     if (m.t === 'buy') { buy(1, m.id); return; }
-    if (m.t === 'upost') { upgradePost(1, m.type); return; }
+    if (m.t === 'upost') { upgradePost(1, m.type, m.idx); return; }
     if (m.t === 'order') { setOrders(1, m.o); return; }
     if (m.t === 'give') { giveUnits(1, m.type); return; }
     if (m.t === 'who') {                              // player 2's name: switch to the pair's campaign, then seat them
@@ -2523,7 +2537,7 @@ function netMessage(m) {
       }
       break;
     }
-    case 'enew': if (m.k !== undefined && m.k < enemies.length) enemies[m.k] = unpackExtra(m.a); else enemies.push(unpackExtra(m.a)); break;
+    case 'enew': { const e = unpackExtra(m.a); if (e.side >= 0 && m.k === undefined) e.fresh = time + 8; if (m.k !== undefined && m.k < enemies.length) enemies[m.k] = e; else enemies.push(e); break; }
     case 'post': unpackPosts([m.a]); break;
     case 'seats': if (campaign) campaign.seats = m.seats.slice(); break;
     case 'nest': if (!nests.some((n) => n.cx === m.cx && n.cy === m.cy && n.alive)) addNest(m.cx, m.cy, m.from); break;
@@ -4311,20 +4325,20 @@ function unpackForts(list) { for (const [i, v] of list || []) if (garrisonable(i
 // the same as for everything else. In solo play every pad is yours.
 // ---------------------------------------------------------------------------
 const SHOP = [
-  { id: 'rifles',  name: 'RIFLE SQUAD',  cost: 100, units: ['inf', 'inf', 'inf', 'inf'], info: '4 riflemen' },
-  { id: 'grens',   name: 'GRENADIERS',   cost: 150, units: ['gren', 'gren', 'gren'], info: '3, lobbed grenades' },
-  { id: 'rockets', name: 'ROCKET TEAM',  cost: 160, units: ['rocket', 'rocket'], info: '2, kill tanks and gunships' },
-  { id: 'flames',  name: 'FLAMERS',      cost: 140, units: ['flame', 'flame'], info: '2, short range, great on zombies' },
-  { id: 'sniper',  name: 'SNIPER',       cost: 90,  units: ['sniper'], info: '1, long range' },
+  { id: 'rifles',  name: 'RIFLE SQUAD',  cost: 100, units: ['inf', 'inf', 'inf', 'inf'], info: 'basic infantry' },
+  { id: 'grens',   name: 'GRENADIERS',   cost: 150, units: ['gren', 'gren', 'gren'], info: 'lob grenades over cover' },
+  { id: 'rockets', name: 'ROCKET TEAM',  cost: 160, units: ['rocket', 'rocket'], info: 'kill tanks and gunships' },
+  { id: 'flames',  name: 'FLAMERS',      cost: 140, units: ['flame', 'flame'], info: 'short range, great on zombies' },
+  { id: 'sniper',  name: 'SNIPER',       cost: 90,  units: ['sniper'], info: 'long range, picks off infantry' },
   { id: 'tank',    name: 'TANK',         cost: 400, units: ['tank'], info: 'drives itself; hop in to drive' },
   { id: 'ftank',   name: 'FLAME TANK',   cost: 450, units: ['ftank'], info: 'short range, burns everything' },
   { id: 'rtank',   name: 'ROCKET TANK',  cost: 500, units: ['rtank'], info: 'rocket salvos, hits helicopters' },
   { id: 'arty',    name: 'ARTILLERY',    cost: 550, units: ['arty'], info: 'shells from far off, not up close' },
-  { id: 'bike',    name: 'MOTORCYCLES',  cost: 160, units: ['bike', 'bike'], info: '2, guns and rockets, fast' },
-  { id: 'buggy',   name: 'DUNE BUGGY',   cost: 140, units: ['buggy'], info: '1, machine gun, fast' },
-  { id: 'jeep',    name: 'JEEP',         cost: 120, park: 'jeep', info: 'parked on the pad, for you to drive' },
-  { id: 'scout',   name: 'SCOUT HELI',   cost: 350, park: 'scout', info: 'parked on the pad, for you to fly' },
-  { id: 'apache',  name: 'APACHE',       cost: 600, park: 'apache', info: 'parked on the pad, for you to fly' },
+  { id: 'bike',    name: 'MOTORCYCLES',  cost: 160, units: ['bike', 'bike'], info: 'guns and rockets, fast' },
+  { id: 'buggy',   name: 'DUNE BUGGY',   cost: 140, units: ['buggy'], info: 'machine gun, fast' },
+  { id: 'jeep',    name: 'JEEP',         cost: 120, park: 'jeep', info: 'for you to drive' },
+  { id: 'scout',   name: 'SCOUT HELI',   cost: 350, park: 'scout', info: 'for you to fly' },
+  { id: 'apache',  name: 'APACHE',       cost: 600, park: 'apache', info: 'for you to fly' },
 ];
 const UNIT_CAP = 24, START_CREDITS = 300;
 const ORDERS = ['FOLLOW', 'HOLD', 'ATTACK'];
@@ -4411,11 +4425,12 @@ function buy(pi, id) {
     else if (isGroundVeh(type)) e.hp = Math.round(ENEMY[type].hp * 1.6);
     e.hp = Math.round(e.hp * (1 + 0.2 * upg(pi, 'units')));          // TOUGH UNITS upgrade
     if (e.order === 'HOLD') e.hold = { x: e.x, y: e.y };
+    e.fresh = time + 8;                              // marked NEW for a few seconds so you can see what you got
     enemies.push(e);
     if (role === 'host') netSend({ t: 'enew', a: packExtra(e) });
   });
   const where = pad.zone === -1 || pad.zone === -3 ? 'HOME' : 'YOUR FORWARD BASE';
-  sayTo(pi, item.name + (item.park ? ' PARKED AT ' + where : ' READY AT ' + where + '. ORDERS: ' + (players[pi].order || 'FOLLOW')), 3);
+  sayTo(pi, 'BOUGHT ' + (item.park ? item.name + ', PARKED AT ' + where : item.units.length + ' ' + plural(unitWord(item.units[0]), item.units.length) + ' AT ' + where + ' (' + (players[pi].order || 'FOLLOW') + ')') + '. ' + credits(pi) + ' CREDITS LEFT', 4);
   if (campaign) autosave(false);
 }
 // Orders go to all of a player's units at once.
@@ -4585,15 +4600,32 @@ function updateFriends(dt) {
 }
 
 // --- the shop part of the BASE screen ---------------------------------------------------------------------------
+// What you get, in plain words: "4 x RIFLEMAN", and how many of that kind you already have.
+const unitWord = (t) => (t === 'inf' ? 'RIFLEMAN' : t === 'gren' ? 'GRENADIER' : t === 'rocket' ? 'ROCKET SOLDIER' : t === 'flame' ? 'FLAMER' : ENEMY[t].name);
+const plural = (w, n) => (n === 1 || w === 'ARTILLERY' ? w : w.endsWith('MAN') ? w.slice(0, -3) + 'MEN' : w.endsWith('Y') ? w.slice(0, -1) + 'IES' : w + 'S');
+function armySummary(mine) {
+  const by = {};
+  for (const e of mine) by[e.type] = (by[e.type] || 0) + 1;
+  return Object.keys(by).map((t) => by[t] + ' ' + plural(unitWord(t), by[t])).join(' · ') || 'NONE YET';
+}
 function baseShop() {
-  const cr = credits(me), mine = myUnits(me);
-  const items = SHOP.map((s) => '<button class="buy" data-id="' + s.id + '"' + (cr < s.cost ? ' disabled' : '') + '><b>' + s.name + '</b><i>' + s.cost + '</i><span>' + s.info + '</span></button>').join('');
+  const cr = credits(me), mine = myUnits(me), room = UNIT_CAP - mine.length;
+  const have = (t) => mine.filter((e) => e.type === t).length;
+  const items = SHOP.map((s) => {
+    const n = s.units ? s.units.length : 0, short = s.cost - cr, full = n && n > room;
+    const what = s.units ? n + ' ' + plural(unitWord(s.units[0]), n) : 'PARKED ON YOUR PAD';
+    const owned = s.units && have(s.units[0]) ? ' · YOU HAVE ' + have(s.units[0]) : '';
+    const why = short > 0 ? 'NEED ' + short + ' MORE' : full ? 'UNIT LIMIT (' + mine.length + '/' + UNIT_CAP + ')' : '';
+    return '<button class="buy" data-id="' + s.id + '"' + (why ? ' disabled' : '') + '><b>' + s.name + '</b><i>' + s.cost + '</i><span class="what">' + what + owned + '</span><span>' + (why || s.info) + '</span></button>';
+  }).join('');
   let give = '';
   if (players[1 - me].active && mine.length && playerAt(1 - seatOf(me)) >= 0) {
     const kinds = [...new Set(mine.map((e) => e.type))];
     give = '<p>GIVE TO PLAYER ' + (2 - me) + '</p><div class="row">' + kinds.map((k) => '<button class="give" data-type="' + k + '">1 ' + ENEMY[k].name + '</button>').join('') + '<button class="give" data-type="all">ALL ' + mine.length + '</button></div>';
   }
-  return '<p>BUY <span class="fine">CREDITS ' + cr + ' · YOUR UNITS ' + mine.length + '/' + UNIT_CAP + ' · ORDERS ' + (player.order || 'FOLLOW') + '</span></p><div class="shop">' + items + '</div>' + give;
+  const note = message.until > time && message.text ? '<p class="note">' + message.text + '</p>' : '';     // what just happened (bought, or why not)
+  return note + '<p>YOUR ARMY <span class="fine">' + mine.length + '/' + UNIT_CAP + ' · ORDERS ' + (player.order || 'FOLLOW') + '</span></p><p class="army">' + armySummary(mine) + '</p>' +
+    '<p>BUY <span class="fine">CREDITS ' + cr + ' · NEW UNITS APPEAR AT YOUR NEAREST PAD, MARKED NEW</span></p><div class="shop">' + items + '</div>' + give;
 }
 function baseShopWire(body) {
   for (const b of body.querySelectorAll('button.buy')) b.onclick = () => { buy(me, b.dataset.id); setTimeout(openBase, role === 'guest' ? 250 : 0); };
@@ -4743,26 +4775,42 @@ function nearestPost(x, y, range, army) {
 
 // --- upgrades (BASE screen) -------------------------------------------------------------------------------------------
 const myPosts = (pi) => posts.filter((p) => p.side === seatOf(pi) && world.small[p.i] === P.TOWER);
-function upgradePost(pi, type) {
-  if (!authority()) { netSend({ t: 'upost', type }); return; }
+function upgradePost(pi, type, idx) {
+  if (!authority()) { netSend({ t: 'upost', type, idx }); return; }
   const h = helis[pi], cost = POST_COST[type];
-  const cand = myPosts(pi).filter((p) => (type === 'inf' ? !p.alive : p.alive && p.type === 'inf')).sort((a, b) => gdist(h.x, h.y, a.x, a.y) - gdist(h.x, h.y, b.x, b.y));
+  const ok = (p) => (type === 'inf' ? !p.alive : p.alive && p.type === 'inf');
+  const pick = idx !== undefined && posts[idx] && myPosts(pi).includes(posts[idx]) && ok(posts[idx]) ? [posts[idx]] : null;   // the tower you picked on the list
+  const cand = pick || myPosts(pi).filter(ok).sort((a, b) => gdist(h.x, h.y, a.x, a.y) - gdist(h.x, h.y, b.x, b.y));
   if (!cand.length) { sayTo(pi, type === 'inf' ? 'EVERY TOWER IS MANNED' : 'NO RIFLEMAN TOWER LEFT TO UPGRADE', 2); return; }
   if (credits(pi) < cost) { sayTo(pi, 'NOT ENOUGH CREDITS', 2); return; }
   addCredits(pi, -cost);
   const p = cand[0];
   p.type = type; p.alive = true; p.hp = ENEMY[type].hp * 3; p.cool = 1;
   postChanged(p);
-  sayTo(pi, 'TOWER: ' + (type === 'inf' ? 'NEW RIFLEMAN' : ENEMY[type].name), 2);
+  sayTo(pi, postName(p) + ': ' + (type === 'inf' ? 'NEW RIFLEMAN ON GUARD' : 'NOW A ' + (type === 'rocket' ? 'ROCKET SOLDIER' : 'SNIPER')) + '. ' + credits(pi) + ' CREDITS LEFT', 4);
   if (campaign) autosave(false);
 }
-function postShop() {
-  const mine = myPosts(me), rifle = mine.filter((p) => p.alive && p.type === 'inf').length, empty = mine.filter((p) => !p.alive).length;
-  const cr = credits(me), btn = (type, label, ok) => '<button class="buy" data-post="' + type + '"' + (ok && cr >= POST_COST[type] ? '' : ' disabled') + '><b>' + label + '</b><i>' + POST_COST[type] + '</i><span>' + (type === 'inf' ? empty + ' tower' + (empty === 1 ? '' : 's') + ' unmanned' : 'nearest rifleman tower') + '</span></button>';
-  return '<p>TOWERS <span class="fine">' + mine.length + ' · ' + mine.filter((p) => p.alive && p.type === 'sniper').length + ' SNIPER · ' + mine.filter((p) => p.alive && p.type === 'rocket').length + ' ROCKETS · ' + rifle + ' RIFLE</span></p>' +
-    '<div class="shop">' + btn('sniper', 'TO SNIPER', rifle > 0) + btn('rocket', 'TO ROCKETS', rifle > 0) + btn('inf', 'RE-MAN', empty > 0) + '</div>';
+// Which tower is which, in words: the base, and where on it (as you see it on screen).
+function postName(p) {
+  const cx = p.i % SIZE, cy = (p.i / SIZE) | 0;
+  const wl = (world.walls || []).find((w) => cx >= w.r.x && cx <= w.r.x + 11 && cy >= w.r.y && cy <= w.r.y + 11);
+  if (!wl) return 'TOWER';
+  const base = wl.id === -1 ? 'HOME' : wl.id === -3 ? 'P2 HOME' : 'FORWARD BASE ' + (wl.id + 1);
+  const x = cx - wl.r.x, y = cy - wl.r.y;
+  const where = x === 0 && y === 0 ? 'TOP CORNER' : x === 11 && y === 0 ? 'RIGHT CORNER' : x === 0 && y === 11 ? 'LEFT CORNER' : x === 11 && y === 11 ? 'BOTTOM CORNER'
+    : (y === 0 ? 'TOP-RIGHT GATE' : y === 11 ? 'BOTTOM-LEFT GATE' : x === 0 ? 'TOP-LEFT GATE' : 'BOTTOM-RIGHT GATE') + ((y === 0 || y === 11 ? x : y) === 4 ? ', UPPER' : ', LOWER');
+  return base + ' ' + where;
 }
-function postShopWire(body) { for (const b of body.querySelectorAll('button[data-post]')) b.onclick = () => { upgradePost(me, b.dataset.post); setTimeout(openBase, role === 'guest' ? 250 : 0); }; }
+function postShop() {
+  const mine = myPosts(me), cr = credits(me);
+  const guard = (p) => (!p.alive ? 'NOBODY: UNMANNED' : p.type === 'inf' ? 'RIFLEMAN' : p.type === 'sniper' ? 'SNIPER' : 'ROCKET SOLDIER');
+  const btn = (p, type, label) => '<button class="tbtn" data-post="' + type + '" data-idx="' + posts.indexOf(p) + '"' + (cr >= POST_COST[type] ? '' : ' disabled') + '>' + label + ' ' + POST_COST[type] + '</button>';
+  const rows = mine.map((p) => '<div class="trow' + (p.alive ? '' : ' empty') + '"><span><b>' + postName(p) + '</b> · ' + guard(p) + '</span>' +
+    (!p.alive ? btn(p, 'inf', 'RE-MAN') : p.type === 'inf' ? btn(p, 'sniper', 'SNIPER') + btn(p, 'rocket', 'ROCKETS') : '<em>TOP RANK</em>') + '</div>').join('');
+  return '<p>YOUR TOWERS <span class="fine">' + mine.filter((p) => p.alive).length + ' OF ' + mine.length + ' MANNED · ' + mine.filter((p) => p.alive && p.type === 'sniper').length + ' SNIPER · ' + mine.filter((p) => p.alive && p.type === 'rocket').length + ' ROCKETS</span></p>' +
+    '<div class="towers">' + (rows || '<p class="fine">No towers yet.</p>') + '</div>';
+}
+function postShopWire(body) { for (const b of body.querySelectorAll('button[data-post]')) b.onclick = () => { upgradePost(me, b.dataset.post, +b.dataset.idx); setTimeout(openBase, role === 'guest' ? 250 : 0); }; }
 
 // --- drawing: the man on top of the tower ----------------------------------------------------------------------------
 // He stands in the cabin: only his head, shoulders and weapon show, between the roof and the cabin wall.
