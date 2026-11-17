@@ -3390,7 +3390,8 @@ function updateFreeZombies(dt) {         // host / solo, free play only
   checkInfection();
   freeZ.zoneHeld = world.bases.map((_, bi) => baseAlive(bi));
 }
-const ZOMBIE_CAP = () => (MOBILE ? 70 : 100);
+const HORDE = 25;                                 // zombies wait round their nest until there are this many, then attack together
+const ZOMBIE_CAP = () => Math.max(MOBILE ? 70 : 100, nests.filter((n) => n.alive).length * (HORDE + 3));
 let nests = [];                    // { cx, cy, x, y, hp, alive, age, clock, from }  from = enemy base index, or -1
 
 // --- nests ------------------------------------------------------------------------------------------------
@@ -3457,14 +3458,23 @@ function updateZombies(dt) {
     for (let k = 0; k < brood && alive < ZOMBIE_CAP(); k++) {
       const a = rand(0, Math.PI * 2), r = rand(2.5, 4.5), cx = n.cx + Math.cos(a) * r, cy = n.cy + Math.sin(a) * r;
       if (cellBlocks('foot', Math.round(cx), Math.round(cy))) continue;
-      spawnZombie(cellX(cx, cy), cellY(cx, cy)); alive++;
+      spawnZombie(cellX(cx, cy), cellY(cx, cy), nests.indexOf(n)); alive++;
     }
+  }
+  // a nest's swarm moves out once it is big enough (a zombie waiting at nest k has base = 100 + k)
+  const waiting = new Map();
+  for (const e of enemies) if (e.alive && e.type === 'zombie' && e.base >= 100) waiting.set(e.base, (waiting.get(e.base) || 0) + 1);
+  for (const [b, count] of waiting) {
+    const n = nests[b - 100];
+    if (count < HORDE && n && n.alive) continue;           // still gathering (a destroyed nest's survivors just go)
+    for (const e of enemies) if (e.alive && e.base === b) { e.base = -1; e.zgoal = null; }
+    if (count >= HORDE) say('A ZOMBIE HORDE OF ' + count + ' IS ON THE MOVE', 5);
   }
   for (const e of enemies) if (e.alive && e.type === 'zombie') zombieThink(e, dt);
 }
 // Reuse the slot of a zombie that fell a while ago, so a long battle doesn't pile up thousands of bodies.
-function spawnZombie(x, y) {
-  const z = makeEnemy('zombie', x, y, -1);
+function spawnZombie(x, y, nestK) {
+  const z = makeEnemy('zombie', x, y, nestK >= 0 ? 100 + nestK : -1);
   let k = -1;
   for (let i = zc().nSpawn; i < enemies.length; i++) { const o = enemies[i]; if (o.type === 'zombie' && !o.alive && (o.gone || time - (o.fallT || 0) > 45)) { k = i; break; } }
   if (k < 0) { k = enemies.length; enemies.push(z); } else enemies[k] = z;
@@ -3518,6 +3528,11 @@ function zombieThink(e, dt) {
       return;
     }
     tx = fx; ty = fy;
+  } else if (e.base >= 100 && nests[e.base - 100]) {     // gathering: mill about round the nest
+    e.engaged = false;
+    const n = nests[e.base - 100];
+    if (!e.mill || gdist(e.x, e.y, e.mill.x, e.mill.y) < 12 || Math.random() < dt * 0.15) { const a = rand(0, Math.PI * 2), r = rand(2, 5); e.mill = { x: cellX(n.cx + Math.cos(a) * r, n.cy + Math.sin(a) * r), y: cellY(n.cx + Math.cos(a) * r, n.cy + Math.sin(a) * r) }; }
+    tx = e.mill.x; ty = e.mill.y;
   } else {
     e.engaged = false;
     if (!e.zgoal || (e.zgoal.kind === 'army' && !baseAlive(e.zgoal.zone)) || (e.zgoal.kind === 'fob' && !zc().built.includes(e.zgoal.zone))) e.zgoal = zombieGoal(e);
@@ -3532,7 +3547,7 @@ function zombieThink(e, dt) {
   e.wob = (e.wob || rand(0, 6)) + dt * 2.3;
   const want = gangle(e.x, e.y, tx, ty) + Math.sin(e.wob) * 0.35;
   e.h = rotateToward(e.h, want, 4 * dt);
-  const sp = def.speed * (0.85 + 0.3 * Math.sin(e.wob * 0.7));
+  const sp = def.speed * (0.85 + 0.3 * Math.sin(e.wob * 0.7)) * (e.base >= 100 && !foe ? 0.45 : 1);
   const nx = e.x + Math.cos(e.h) * sp * dt, ny = e.y + Math.sin(e.h) * sp * 0.5 * dt;
   if (!posBlocks('foot', nx, ny)) { e.x = nx; e.y = ny; }
   else if (!posBlocks('foot', nx, e.y)) e.x = nx;
@@ -4501,7 +4516,7 @@ function soundBoom(x, y, size) { if (ok('boom', size > 30 ? 0.05 : 0.07)) sfx('b
 function soundSay(text) {
   if (!audioReady()) return;
   if (/PICKED UP|RESTOCKED|REPAIRED|PATCHED UP/.test(text)) SFX.pickup();
-  else if (/UNDER ATTACK|INBOUND|ZOMBIES AT|OVERRAN|OVERRUN/.test(text)) { if (ok('alarm', 6)) SFX.alarm(); }
+  else if (/UNDER ATTACK|INBOUND|ZOMBIES AT|OVERRAN|OVERRUN|HORDE/.test(text)) { if (ok('alarm', 6)) SFX.alarm(); }
   else if (/MAP CLEARED/.test(text)) SFX.win();
   else if (/BUILT|READY|PARKED|^KIT:|^TOWER:|GAVE|GIVEN|CLOUD SAVE SWITCHED|LINKED|JOINED/.test(text)) SFX.ding();
   else if (/NOT ENOUGH|NO ROOM|CANNOT|EVERY TOWER|NO RIFLEMAN/.test(text)) SFX.buzz();
