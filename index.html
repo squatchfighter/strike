@@ -59,6 +59,8 @@
   #hud { position: fixed; left: 0; top: 0; pointer-events: none; z-index: 2; }
   #menu .box { width: min(92vw, 380px); text-align: center; }
   /* menu hot keys: a small key in a gutter of its own at the right, so it never sits on the label */
+  #menu ul.obj { margin: 6px 0 4px; padding-left: 18px; text-align: left; font-size: 12px; line-height: 1.45; } #menu ul.obj li { margin: 3px 0; }
+  #camp .upgs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; } #camp button.buy { margin: 0; padding: 5px 8px; text-align: left; } #camp button.buy b { color: #a0e0f0; } #camp button.buy i { float: right; font-style: normal; color: #fff0a0; } #camp button.buy span { display: block; color: #a8b0a0; font-size: 11px; } #camp button.buy:disabled { opacity: 0.45; }
   body.keys button[data-hk] { position: relative; padding-right: 26px !important; }
   body.keys #menu > .box > #menu-body > button[data-hk] { padding-left: 26px; }
   body.keys #title button[data-hk] { padding-left: 6px; padding-right: 18px !important; white-space: nowrap; }
@@ -100,7 +102,7 @@
 <canvas id="hud" width="480" height="270"></canvas>
 <div id="loading">LOADING</div>
 <div id="title" hidden><img id="title-logo" alt="STRIKE"><div class="tag">OPEN WORLD HELICOPTER WAR</div>
-  <div class="menu"><button class="main" id="t-continue">CONTINUE</button><div class="row2"><button id="t-mode">ENEMY: ARMY</button><button id="t-who">WHO'S PLAYING?</button></div><div class="row2"><button id="t-maps">CAMPAIGN MAPS</button><button id="t-multi">PLAY TOGETHER</button></div>
+  <div class="menu"><button class="main" id="t-continue">CONTINUE</button><div class="row2"><button id="t-mode">ENEMY: ARMY</button><button id="t-who">WHO'S PLAYING?</button></div><div class="row2"><button id="t-maps">CAMPAIGN MAPS</button><button id="t-surv">SURVIVAL</button><button id="t-multi">PLAY TOGETHER</button></div>
   <div class="row2"><button id="t-free">FREE PLAY</button><button id="t-place">REAL PLACE</button><button id="t-cloud">CLOUD SAVE</button></div></div>
   <div class="foot" id="t-foot"></div></div>
 <div id="menu" hidden><div class="box"><h2>PAUSED</h2><div id="menu-body"></div></div></div>
@@ -951,7 +953,7 @@ Object.assign(VEH.tank.shrug, { ftank: 0.5, rtank: 1.2, arty: 1, bike: 0.15, bug
 const FOOT = {}; for (const k in INF) FOOT[k] = Object.assign({}, VEH.foot, { weapons: INF[k].weapons, kit: k, name: INF[k].name });
 const veh = (pi) => players[pi].kind === 'foot' ? FOOT[players[pi].inf] || FOOT.rifle : VEH[players[pi].kind];
 const weaponOf = (pi, slot) => { const w = veh(pi).weapons[slot]; return w < 0 ? null : WEAPONS[w]; };
-const fullAmmo = (kind, pi) => (kind === 'foot' && pi !== undefined ? veh(pi) : VEH[kind]).weapons.map((w) => (w < 0 ? 0 : WEAPONS[w].max));
+const fullAmmo = (kind, pi) => (kind === 'foot' && pi !== undefined ? veh(pi) : VEH[kind]).weapons.map((w) => (w < 0 ? 0 : Math.round(WEAPONS[w].max * (pi !== undefined && typeof upg === 'function' ? 1 + 0.25 * upg(pi, 'ammo') : 1))));
 const ENEMY = {
   tank: { name: 'TANK',   hp: 220, range: 600, rate: 2.6, dmg: 26, hit: 46, speed: 46, shot: 800,  score: 300, radius: 26, z: 14, boom: 30, vsGround: 2.6, hunts: true },
   aa:   { name: 'AA GUN', hp: 70,  range: 680, rate: 1.3, dmg: 10, hit: 54, speed: 0,  shot: 1050, score: 200, radius: 20, z: 20, boom: 24 },
@@ -1217,7 +1219,9 @@ function exitVehicle(pi) {                               // leave the vehicle wh
   pl.landing = false;
   {
     const v = vehicles[pl.vid];
-    v.armor = pl.armor; v.fuel = pl.fuel; v.ammo = pl.ammo.map(Math.floor); v.by = -1; v.x = h.x; v.y = h.y; v.h = h.heading; v.vx = v.vy = 0;
+    v.armor = pl.armor; v.fuel = pl.fuel; v.ammo = pl.ammo.map(Math.floor); v.by = -1;
+    v.pax = pl.pax || 0; v.paxPay = pl.paxPay || 0; pl.pax = 0; pl.paxPay = 0;            // passengers wait in it
+    v.x = h.x; v.y = h.y; v.h = h.heading; v.vx = v.vy = 0;
     let ox = 0, oy = 0;
     for (const a of [h.heading + Math.PI / 2, h.heading - Math.PI / 2, h.heading + Math.PI, h.heading]) {
       const tx = h.x + Math.cos(a) * 34, ty = h.y + Math.sin(a) * 17;
@@ -1225,7 +1229,7 @@ function exitVehicle(pi) {                               // leave the vehicle wh
     }
     setPlayerKind(pi, 'foot', -1, h.x + ox, h.y + oy, h.heading);
     Object.assign(pl, { armor: pl.footArmor, fuel: PLAYER_MAX.fuel, ammo: fullAmmo('foot', pi) });
-    if (v.unit && ENEMY[v.kind]) {                       // it was one of your units: it goes back to its orders
+    if (v.unit && ENEMY[v.kind] && !v.pax) {                       // it was one of your units: it goes back to its orders
       const e = makeEnemy(v.kind, v.x, v.y, -5);
       e.side = v.unit.side; e.order = players[pi].order || v.unit.order || 'FOLLOW'; e.h = v.h; e.th = v.th; e.slot = myUnits(pi).length;
       e.hp = Math.max(1, Math.round(unitMaxHp(v.kind) * Math.max(0, v.armor) / VEH[v.kind].armor));
@@ -1252,7 +1256,7 @@ function boardVehicle(pi) {
     pl.footArmor = pl.armor;
     v.by = pi;
     setPlayerKind(pi, v.kind, v.id, v.x, v.y, v.h);
-    Object.assign(pl, { armor: v.armor, fuel: v.fuel, ammo: v.ammo.slice() });
+    Object.assign(pl, { armor: v.armor, fuel: v.fuel, ammo: v.ammo.slice(), pax: v.pax || 0, paxPay: v.paxPay || 0 }); v.pax = 0; v.paxPay = 0;
     sayTo(pi, VEH[v.kind].name + (VEH[v.kind].air ? ': TAKING OFF' : ': READY'), 2);
   }
 }
@@ -1484,6 +1488,7 @@ function hurt(pi, dmg, from) {
   if (pl.dead) return;
   const shrug = veh(pi).shrug;
   if (shrug && from) dmg *= shrug[from] === undefined ? 1 : shrug[from];
+  dmg /= 1 + 0.15 * upg(pi, 'armor');                                                  // ARMOUR upgrade
   if (pl.gar >= 0) dmg *= 0.4 - 0.15 * ((forts.get(pl.gar) || { fort: 0 }).fort);     // inside a building: hard to hit, harder with sandbags
   else if (pl.kind === 'foot') dmg *= coverAt(helis[pi].x, helis[pi].y);            // behind the sandbags
   pl.armor -= dmg; pl.hitFlash = 0.14;
@@ -1656,7 +1661,7 @@ function updateShots(dt) {
         puff('spark', s.x1, s.y1, s.z1 + 1, { vx: rand(-40, 40), vy: rand(-20, 20), vz: rand(40, 110), life: 0.3 });
         puff('dust', s.x1, s.y1, 1, { r: 2, life: 0.4, c: '#b8a888', a: 0.45 });
       } else explosion(s.x1, s.y1, s.z1 + 3, w.boom, true);
-      if (authority()) damageAt(s.x1, s.y1, w.blast, w.dmg, s.pi);
+      if (authority()) damageAt(s.x1, s.y1, w.blast, w.dmg * (1 + 0.1 * upg(s.pi, 'fire')), s.pi);
     } else if (s.acid) {                               // a spitter's acid
       acidLands(s);
     } else if (s.ally) {                               // your units' fire
@@ -1791,7 +1796,7 @@ function updatePlayer(pi, dt) {
   pl.hitFlash = Math.max(0, pl.hitFlash - dt);
   if (pl.dead > 0) { pl.dead -= dt; if (pl.dead <= 0) respawn(pi); return; }
   if (kind.fuel) {
-    pl.fuel -= dt * PLAYER_MAX.fuel / kind.fuel;
+    pl.fuel -= dt * PLAYER_MAX.fuel / kind.fuel / (1 + 0.25 * upg(pi, 'fuel'));
     if (pl.fuel <= 0) { pl.fuel = 0; die(pi, 'OUT OF FUEL'); return; }
   }
   pl.lock = findLock(heli);
@@ -1919,6 +1924,7 @@ function updateCombat(dt) {
     if (typeof updateCampaign === 'function') updateCampaign(dt);
     updateCars(dt);
     if (typeof updateCivilians === 'function') updateCivilians(dt);
+    if (typeof updateMissions === 'function') updateMissions(dt);
     updateVehicles(dt);
     for (let i = pending.length - 1; i >= 0; i--) {          // delayed secondary explosions
       const p = pending[i];
@@ -2139,13 +2145,14 @@ function drawCombatHud() {
     const label = (MOBILE ? '' : 'E  ') + hint;
     text(label, Math.round(r[0] + (r[2] - label.length * FONT_W) / 2), r[1] + 5, go ? 'yellow' : 'white');
   }
-  const status = (typeof campaign !== 'undefined' && campaign) ? (campaign.won ? 'CLEARED' : (armyOn() ? 'ENEMY BASES ' + world.bases.filter((_, bi) => baseAlive(bi)).length : '') + (zombiesOn() ? (armyOn() ? ' · ' : '') + 'NESTS ' + nests.filter((n) => n.alive).length : '')) : 'TARGETS ' + targetsLeft + (zombiesOn() ? ' · NESTS ' + nests.filter((n) => n.alive).length : '');
+  const status = (typeof campaign !== 'undefined' && campaign && campaign.mode === 'survival') ? 'SURVIVAL · WAVE ' + (campaign.survWave || 0) + ' · NESTS ' + nests.filter((n) => n.alive).length : (typeof campaign !== 'undefined' && campaign) ? (campaign.won ? 'CLEARED' : (armyOn() ? 'ENEMY BASES ' + world.bases.filter((_, bi) => baseAlive(bi)).length : '') + (zombiesOn() ? (armyOn() ? ' · ' : '') + 'NESTS ' + nests.filter((n) => n.alive).length : '')) : 'TARGETS ' + targetsLeft + (zombiesOn() ? ' · NESTS ' + nests.filter((n) => n.alive).length : '');
   text(status, UW - 4 - status.length * FONT_W, 30, 'yellow');
   const sc = 'SCORE ' + pad(player.score, 6);
   text(sc, UW - 4 - sc.length * FONT_W, 41);
   const crs = 'CREDITS ' + credits(me);
   text(crs, UW - 4 - crs.length * FONT_W, 52, 'cyan');
   if (role !== 'solo') { const ln = NET.connected ? 'LINKED' : 'NO LINK'; text(ln, UW - 4 - ln.length * FONT_W, 63, NET.connected ? 'cyan' : 'yellow'); }
+  if (player.pax) { const px = 'ON BOARD ' + player.pax + '/' + (CARRY[player.kind] || player.pax); text(px, UW - 4 - px.length * FONT_W, role !== 'solo' ? 74 : 63, 'white'); }
   const units = myUnits(me).length;
   if (units) {                                            // orders for all your units: tap to change
     const r = ordersRect(); panel(r);
@@ -2176,6 +2183,9 @@ function drawCombatHud() {
   });
   for (const e of enemies) if (e.alive && (isGroundVeh(e.type) || e.type === 'gunship') && (e.field || e.wave || e.base < 0)) dot(mapX(e.x, e.y), mapY(e.x, e.y), '#f09050', 0);
   if (players[1 - me].active) dot(mapX(helis[1 - me].x, helis[1 - me].y), mapY(helis[1 - me].x, helis[1 - me].y), '#60e0e8', 1);
+  if (typeof rescues !== 'undefined') for (const r of rescues) if (rescueLeft(r)) dot(r.cx, r.cy, Math.floor(time * 3) % 2 ? '#fff0a0' : '#ffffff', 1);   // people waiting for a ride
+  { const pb = typeof priorityBase === 'function' ? priorityBase() : -1;                                                    // the priority target: a yellow star
+    if (pb >= 0 && baseAlive(pb) && !campaign.prio) { const b = world.bases[pb], sx = Math.round(mx0 + miniX(b.x + 6, b.y + 6)), sy = Math.round(my0 + miniY(b.x + 6, b.y + 6)); ctx.fillStyle = '#ffe040'; ctx.fillRect(sx - 3, sy, 7, 1); ctx.fillRect(sx, sy - 3, 1, 7); ctx.fillRect(sx - 1, sy - 1, 3, 3); } }
   if (blinkOn) dot(hmx, hmy, '#ffffff', 1);
   // arrows at the screen edge toward the nearest enemy base still standing (red) and the nearest zombie nest (green)
   const edgeArrow = (cx, cy, color, label) => {
@@ -2193,6 +2203,12 @@ function drawCombatHud() {
     let nn = null, nd = 1e9;
     if (typeof nests !== 'undefined') for (const n of nests) { if (!n.alive) continue; const d = Math.hypot(n.cx - hmx, n.cy - hmy); if (d < nd) { nd = d; nn = n; } }
     if (nn) edgeArrow(nn.cx, nn.cy, '#a8d040', 'NEST ' + Math.round(nd));
+    if (player.pax) { const p = nearestPad(heli.x, heli.y); if (p) edgeArrow(p.cx - 0.5, p.cy - 0.5, '#60c0f0', 'PAD: ' + player.pax + ' ABOARD'); }
+    else if (typeof rescues !== 'undefined' && CARRY[player.kind]) {               // in something that can carry people: the nearest rescue
+      let rr = null, rd = 1e9;
+      for (const r of rescues) { if (!rescueLeft(r)) continue; const d = Math.hypot(r.cx - hmx, r.cy - hmy); if (d < rd) { rd = d; rr = r; } }
+      if (rr) edgeArrow(rr.cx, rr.cy, '#fff0a0', 'RESCUE ' + Math.round(rd));
+    }
   }
 
   // second player: status line, and an arrow to them when they are off screen
@@ -2335,7 +2351,7 @@ function netHello() {                                 // everything a (re)joinin
   const aliveCars = new Set(cars.map((c) => c.id));
   netSend({
     t: 'hello', seed, place: currentPlace, tl: targetsLeft, who: myName(), crew: currentCrew(),
-    camp: campaign ? { id: campaign.id, elapsed: campaign.elapsed, wave: campaign.waveClock, waves: campaign.waves, won: campaign.won, built: campaign.built, owners: campaign.owners, fo: packForts(), po: packPosts(), seats: campaign.seats, cr: campaign.credits, mode: campaign.mode, run: campaign.run, nests: nests.map(packNest) } : null,
+    camp: campaign ? { id: campaign.id, elapsed: campaign.elapsed, wave: campaign.waveClock, waves: campaign.waves, won: campaign.won, built: campaign.built, owners: campaign.owners, fo: packForts(), po: packPosts(), seats: campaign.seats, cr: campaign.credits, mode: campaign.mode, run: campaign.run, nests: nests.map(packNest), sw: campaign.survWave || 0, rs: packRescued() } : null,
     ex: zc() ? enemies.slice(zc().nSpawn).map((e) => packExtra(e)) : [], prog: loadProgress(),
     zfree: !campaign && freeZ ? { mode: freeZ.mode, nests: nests.map(packNest), n: freeZ.nSpawn } : null, po: campaign ? null : packPosts(),
     cells: [...changedCells].map((i) => [i, world.small[i], world.large[i]]),
@@ -2357,7 +2373,7 @@ function buildSnapshot() {
     if (gdist(cellX(car.cx, car.cy), cellY(car.cx, car.cy), g.x, g.y) > 1500) continue;
     c.push(car.id, car.cx, car.cy, car.nx, car.ny, +car.prog.toFixed(2));
   }
-  const pl = (p) => [r(p.armor), +p.fuel.toFixed(1), Math.floor(p.ammo[0]), Math.floor(p.ammo[1]), Math.floor(p.ammo[2]), p.score, +p.dead.toFixed(2), p.kind, p.vid, p.inf, p.gar >= 0 ? p.gar : -1, credits(players.indexOf(p)), p.order || 'FOLLOW', seatOf(players.indexOf(p)), p.landing ? 1 : 0];
+  const pl = (p) => [r(p.armor), +p.fuel.toFixed(1), Math.floor(p.ammo[0]), Math.floor(p.ammo[1]), Math.floor(p.ammo[2]), p.score, +p.dead.toFixed(2), p.kind, p.vid, p.inf, p.gar >= 0 ? p.gar : -1, credits(players.indexOf(p)), p.order || 'FOLLOW', seatOf(players.indexOf(p)), p.landing ? 1 : 0, p.pax || 0];
   const v = [];
   for (const ve of vehicles) {
     if (!ve || ve.gone || (ve.by < 0 && gdist(ve.x, ve.y, g.x, g.y) > 1900)) continue;
@@ -2375,6 +2391,7 @@ function glideTo(h, a) {                              // remote helicopter: reme
 function netMessage(m) {
   if (role === 'host' || (role === 'solo' && m.t === 'in')) {
     if (m.t === 'hold') { setHold(m.on, false, m.by); return; }
+    if (m.t === 'upg') { buyUpgrade(1, m.key); return; }
     if (m.t === 'act') { interact(1); return; }
     if (m.t === 'kit') { setKit(1, m.k); return; }
     if (m.t === 'buy') { buy(1, m.id); return; }
@@ -2388,7 +2405,7 @@ function netMessage(m) {
         setCrew(tc);
         if (m.prog) lsSet(progKey(), mergeProgress(loadProgress(), m.prog));
         say('CAMPAIGN: ' + crewLabel(tc), 5);
-        if (campaign) startMap(loadProgress().last || 1); else netHello();
+        if (campaign) startMap(loadProgress().last || 1, { noBrief: true }); else netHello();
         return;
       }
       const s = takeSeat(1, players[1].who);
@@ -2434,11 +2451,11 @@ function netMessage(m) {
       } else if (m.camp) {
         NET.busy = false;
         const spec = MAPS[m.camp.id - 1];
-        campaign = { id: m.camp.id, spec, elapsed: m.camp.elapsed, waveClock: m.camp.wave, waves: m.camp.waves, won: m.camp.won, nSpawn: 0, saveClock: 0, zoneHeld: [], built: [], mode: m.camp.mode || 'army', run: m.camp.run || 0, t0: Date.now() };
+        campaign = { id: m.camp.id, spec, elapsed: m.camp.elapsed, waveClock: m.camp.wave, waves: m.camp.waves, won: m.camp.won, nSpawn: 0, saveClock: 0, zoneHeld: [], built: [], mode: m.camp.mode || 'army', run: m.camp.run || 0, t0: Date.now(), survWave: m.camp.sw || 0 };
         newWorld(spec.seed, null, spec);
         campaign.nSpawn = enemies.length;
         for (const a of m.ex) enemies.push(unpackExtra(a));
-        nests = (m.camp.nests || []).map(unpackNest);
+        nests = (m.camp.nests || []).map(unpackNest); unpackRescued(m.camp.rs);
         unpackForts(m.camp.fo);
         if (m.camp.seats) campaign.seats = m.camp.seats.slice();
         if (m.camp.cr) campaign.credits = m.camp.cr.slice();
@@ -2499,7 +2516,7 @@ function netMessage(m) {
         if (pi === me && a[0] < pl.armor - 0.5) { pl.hitFlash = 0.14; shake = Math.max(shake, 3); }
         pl.armor = a[0]; pl.fuel = a[1]; pl.ammo = [a[2], a[3], a[4]]; pl.score = a[5]; pl.dead = a[6]; pl.kind = a[7]; pl.vid = a[8]; pl.inf = a[9] || 'rifle';
         if (a[13] !== undefined) pl.seat = a[13];
-        pl.landing = !!a[14];
+        pl.landing = !!a[14]; pl.pax = a[15] || 0;
         if (a[11] !== undefined) { const k = players.indexOf(pl); if (campaign) { if (!campaign.credits) campaign.credits = [0, 0]; campaign.credits[seatOf(k)] = a[11]; } else pl.credits = a[11]; pl.order = a[12]; }
         if (a[10] !== undefined) { if (a[10] >= 0 && pl.gar !== a[10] && pl === player) { const bp = bpos(a[10]); heli.x = bp.x; heli.y = bp.y; heli.gx = bp.x; heli.gy = bp.y * 2; } pl.gar = a[10]; }
       }
@@ -2555,6 +2572,9 @@ function netMessage(m) {
     case 'car': cars = cars.filter((c) => c.id !== m.id); break;
     case 'say': sayLocal(m.text, m.secs); break;
     case 'hold': setHold(m.on, false, m.by); break;
+    case 'prog': lsSet(progKey(), mergeProgress(loadProgress(), m.p)); progCache = null; break;
+    case 'swave': if (campaign) campaign.survWave = m.w; break;
+    case 'sover': if (campaign) { campaign.over = true; setTimeout(() => { if (campaign && campaign.over) survivalScreen(); }, 5000); } break;
   }
 }
 
@@ -3087,9 +3107,14 @@ function mergeProgress(a, b) {
   const pct = Object.assign({}, a.pct);
   for (const k in b.pct) pct[k] = Math.max(pct[k] || 0, b.pct[k]);
   const newer = (b.t || 0) > (a.t || 0) ? b : a;
-  return { unlocked: Math.max(a.unlocked, b.unlocked), won: [...new Set([...a.won, ...b.won])].sort((x, y) => x - y), pct, last: newer.last, t: Math.max(a.t || 0, b.t || 0) };
+  // war chests (earned / spent only ever go up, so the larger of each wins), upgrade levels and survival records: highest wins
+  const chest = {}, upgs = {}, surv = Object.assign({}, a.surv || {});
+  for (const src of [a.chest || {}, b.chest || {}]) for (const n in src) { const c = chest[n] || (chest[n] = { e: 0, s: 0 }); c.e = Math.max(c.e, src[n].e || 0); c.s = Math.max(c.s, src[n].s || 0); }
+  for (const src of [a.upg || {}, b.upg || {}]) for (const n in src) { const u = upgs[n] || (upgs[n] = {}); for (const k in src[n]) u[k] = Math.max(u[k] || 0, src[n][k]); }
+  for (const k in b.surv || {}) surv[k] = Math.max(surv[k] || 0, b.surv[k]);
+  return { unlocked: Math.max(a.unlocked, b.unlocked), won: [...new Set([...a.won, ...b.won])].sort((x, y) => x - y), pct, last: newer.last, t: Math.max(a.t || 0, b.t || 0), chest, upg: upgs, surv };
 }
-function saveProgress(p) { p.t = Date.now(); lsSet(progKey(), p); cloudQueue(cloudName('progress'), p); }
+function saveProgress(p) { p.t = Date.now(); lsSet(progKey(), p); if (typeof progCache !== 'undefined') progCache = null; cloudQueue(cloudName('progress'), p); }
 
 // --- one map's battle state -----------------------------------------------------------------------------------
 function captureState() {
@@ -3103,7 +3128,7 @@ function captureState() {
     tk: world.targets.map((t, k) => (t.alive ? -1 : k)).filter((k) => k >= 0),
     pk: pickups.map((p, k) => (p.taken ? k : -1)).filter((k) => k >= 0),
     extra: enemies.slice(n).filter((e) => e.alive).map(packExtra),
-    mode: campaign.mode, run: campaign.run, nests: nests.map(packNest), cr: (campaign.credits || []).map(Math.floor), own: campaign.owners || {}, seats: campaign.seats || ['', ''], fo: packForts(), po: packPosts(),
+    mode: campaign.mode, run: campaign.run, nests: nests.map(packNest), cr: (campaign.credits || []).map(Math.floor), own: campaign.owners || {}, seats: campaign.seats || ['', ''], fo: packForts(), po: packPosts(), rs: packRescued(), pr: campaign.prio || '', cb: campaign.cbon || [0, 0],
   };
 }
 const packExtra = (e) => [e.type, Math.round(e.x), Math.round(e.y), e.base, e.goal ? e.goal.zone : -9, Math.round(e.hp), e.siegeZone === undefined ? -1 : e.siegeZone, e.side >= 0 ? e.side : -1, e.order || ''];
@@ -3147,6 +3172,7 @@ function applyState(st) {
   if (st.seats) campaign.seats = st.seats.slice();
   unpackForts(st.fo);
   campaign.savedPo = st.po;
+  unpackRescued(st.rs); if (st.pr) campaign.prio = st.pr; if (st.cb) campaign.cbon = st.cb.slice();
   campaign.elapsed = st.elapsed || 0; campaign.waveClock = st.wave || 0; campaign.waves = st.waves || 0; campaign.won = !!st.won;
   for (const bi of st.built || []) buildFriendlyBase(bi, { quiet: true, vehicles: true });
   if (campaign.won) surrender();
@@ -3156,7 +3182,7 @@ function applyState(st) {
 function applyDelta(st) {
   if (!st || !campaign || st.id !== campaign.id) return 0;
   if ((st.run || 0) !== (campaign.run || 0)) {                // the other player restarted this map (perhaps in another mode)
-    if ((st.t || 0) > campaign.t0 || (campaign.fresh && campaign.elapsed < 30)) { const id = campaign.id, fresh = campaign.fresh; setTimeout(() => { startMap(id, { replace: st }); say(fresh ? 'LOADED THE SAVED BATTLE' : 'THE OTHER PLAYER RESTARTED THIS MAP AS ' + MODES[st.mode || 'army'], 5); }, 0); return 1; }
+    if ((st.t || 0) > campaign.t0 || (campaign.fresh && campaign.elapsed < 30)) { const id = campaign.id, fresh = campaign.fresh; setTimeout(() => { startMap(id, { replace: st, noBrief: true }); say(fresh ? 'LOADED THE SAVED BATTLE' : 'THE OTHER PLAYER RESTARTED THIS MAP AS ' + MODES[st.mode || 'army'], 5); }, 0); return 1; }
     return 0;
   }
   let n = 0;
@@ -3215,11 +3241,13 @@ function startMap(id, opts) {
     if (players[1].active && seatOf(1) === 1 && world.home2) sendHome(1);
     if (role === 'host') netSend({ t: 'seats', seats: campaign.seats });
   }
-  const prog = loadProgress(); prog.last = id; saveProgress(prog);
+  if (mode !== 'survival') { const prog = loadProgress(); prog.last = id; saveProgress(prog); }
+  else campaign.fresh = false;
   if (role !== 'guest') {
     say(campaign.won ? 'MAP ' + id + ' ' + spec.name + ': CLEARED' : 'MAP ' + id + ': ' + spec.name + (mode === 'army' ? '' : ' · ' + MODES[mode]), 5);
     if (role === 'host') netHello();
-    cloudPull(id);
+    if (mode !== 'survival') cloudPull(id);
+    if (!opts.noBrief && !campaign.won && typeof openBriefing === 'function') setTimeout(() => { if (campaign && campaign.id === id && $('menu').hidden && !titleOpen) openBriefing(); }, 300);
   }
 }
 function startFreePlay(s) { campaign = null; nests = []; newWorld(s === undefined ? Math.floor(Math.random() * 100000) : s); }
@@ -3234,7 +3262,7 @@ function updateZones() {
     if (held === campaign.zoneHeld[bi]) return;
     campaign.zoneHeld[bi] = held;
     if (!held && nestOnSite(bi)) { /* overrun by zombies: no credit, and checkInfection has said so */ }
-    else if (!held) { for (const pl of players) if (pl.active) pl.score += 1500; say('ENEMY BASE DESTROYED. ' + campaign.zoneHeld.filter((h) => h).length + ' LEFT. LAND THERE TO BUILD YOUR OWN', 6); }
+    else if (!held) { for (const pl of players) if (pl.active) pl.score += 1500; priorityCheck(bi); say('ENEMY BASE DESTROYED. ' + campaign.zoneHeld.filter((h) => h).length + ' LEFT. LAND THERE TO BUILD YOUR OWN', 6); }
     autosave(true);
   });
   const armyDown = !armyOn() || world.bases.every((_, bi) => !baseAlive(bi)), zombiesDown = !zombiesOn() || !nests.some((n) => n.alive);
@@ -3243,6 +3271,7 @@ function updateZones() {
     for (const pl of players) if (pl.active) pl.score += 10000;
     surrender();
     say(campaign.mode === 'zombies' ? 'MAP CLEARED. EVERY ZOMBIE NEST IS GONE' : campaign.mode === 'mixed' ? 'MAP CLEARED. EVERY ENEMY BASE AND ZOMBIE NEST IS GONE' : 'MAP CLEARED. EVERY ENEMY BASE IS DOWN AND THE REST HAVE SURRENDERED', 8);
+    chestOnWin();                                  // before reading the progress: it writes the war chest into it
     const prog = loadProgress();
     if (!prog.won.includes(campaign.id)) prog.won.push(campaign.id);
     prog.unlocked = Math.max(prog.unlocked, Math.min(MAPS.length, campaign.id + 1));
@@ -3250,7 +3279,7 @@ function updateZones() {
     saveProgress(prog);
     autosave(true);
     if (role === 'host') netSend({ t: 'won', id: campaign.id });
-    setTimeout(() => openMaps('won'), 3500);
+    { const id = campaign.id; setTimeout(() => { if (campaign && campaign.won && campaign.id === id && campaign.mode !== 'survival') openMaps('won'); }, 3500); }
   }
 }
 
@@ -3454,7 +3483,7 @@ function updateCampaign(dt) {
   if (campaign.saveClock > 10) autosave(false);
 }
 function autosave(important) {
-  if (!campaign) return;
+  if (!campaign || campaign.mode === 'survival') return;      // survival runs aren't saved (only their best wave)
   if (role === 'guest' && !NET.synced) return;      // not in the pair's campaign yet: nothing of ours to save
   campaign.saveClock = 0;
   const st = captureState();
@@ -3531,7 +3560,7 @@ async function cloudPull(id) {
     // just opened and nothing done here yet, but the cloud says this campaign was last on another map: go there
     const last = loadProgress().last;
     if (campaign && campaign.id === id && campaign.fresh && campaign.elapsed < 30 && last && last !== id && role !== 'guest' && !players[1].active) {
-      startMap(last);
+      startMap(last, { noBrief: true });
       if (titleOpen) openTitle();
       return;
     }
@@ -3565,11 +3594,14 @@ function mapsScreen(why) {
   const pref = modePref();
   const modes = '<div class="row modes"><span class="lbl">ENEMY</span>' + Object.keys(MODES).map((k) => '<button class="mode' + (k === pref ? ' on' : '') + '" data-mode="' + k + '">' + MODES[k] + '</button>').join('') + '</div>';
   body.innerHTML = head + modes + '<div class="maps">' + rows + '</div>' +
+    '<div class="row"><button id="camp-upg">UPGRADES · CHEST ' + chestOf(nameOf(me)) + '</button><button id="camp-surv">SURVIVAL</button></div>' +
     '<div class="row"><button id="camp-free">FREE PLAY</button><button id="camp-place">REAL PLACE</button><button id="camp-cloud">CLOUD SAVE: ' + (c ? 'ON' : 'OFF') + '</button></div>' +
     '<p class="fine">' + (c ? 'Saving to ' + c.repo + '. ' + (cloudState.status || '') : 'Saves stay in this browser until cloud save is set up.') + '</p>';
   for (const b of body.querySelectorAll('button.mode')) b.onclick = () => { setModePref(b.dataset.mode); mapsScreen(why); };
   for (const b of body.querySelectorAll('button.map')) b.onclick = () => pickMap(+b.dataset.id, body);
   $('camp-free').onclick = () => { closeMaps(); startFreePlay(); };
+  $('camp-upg').onclick = () => upgradesScreen(() => mapsScreen(why));
+  $('camp-surv').onclick = () => survivalScreen();
   $('camp-place').onclick = () => { closeMaps(); openPlace(); };
   $('camp-cloud').onclick = () => cloudScreen();
   const cur = body.querySelector('button.cur') || body.querySelector('button.map:not(.locked):last-of-type');
@@ -3584,8 +3616,9 @@ function pickMap(id, body) {
     return;
   }
   closeMaps();
-  if (going || (st && st.won && saved === modePref())) { if (!cur) startMap(id); return; }
+  if (going || (st && st.won && saved === modePref())) { if (!cur) startMap(id); else openBriefing(); return; }
   if (!cur || campaign.mode !== modePref()) startMap(id, { mode: modePref() });     // fresh (or cleared) map: the mode picked
+  else openBriefing();
 }
 function cloudScreen() {
   const body = $('camp-body'), c = lsGet(CLOUD_KEY) || {};
@@ -3642,13 +3675,14 @@ VEH.tank.shrug.zombie = 0.25; VEH.jeep.shrug.zombie = 0.9; VEH.foot.shrug.zombie
 for (const k of ['ftank', 'rtank', 'arty']) VEH[k].shrug.zombie = 0.25;
 VEH.bike.shrug.zombie = 1; VEH.buggy.shrug.zombie = 0.9;
 const MODES = { army: 'ARMY', mixed: 'ARMY + ZOMBIES', zombies: 'ZOMBIES' };
+Object.defineProperty(MODES, 'survival', { value: 'SURVIVAL', enumerable: false });     // started from its own screen, not the mode pickers
 const MODE_KEY = 'strike.v1.mode';
 const modePref = () => { const m = lsGet(MODE_KEY); return MODES[m] ? m : 'army'; };
 // Free play and real places have zombies too: `freeZ` stands in for the campaign there (mode, no forward bases).
 let freeZ = null;
 const zc = () => campaign || freeZ;
 const zombiesOn = () => !!zc() && zc().mode !== 'army';
-const armyOn = () => !zc() || zc().mode !== 'zombies';
+const armyOn = () => !zc() || (zc().mode !== 'zombies' && zc().mode !== 'survival');
 function setupFree(mode) {               // after a free-play or real-place world is made (host / solo)
   freeZ = { mode: mode || 'army', built: [], zoneHeld: [], nSpawn: 0, won: false };
   setupZombies(freeZ.mode);
@@ -3665,7 +3699,12 @@ function updateFreeZombies(dt) {         // host / solo, free play only
   freeZ.zoneHeld = world.bases.map((_, bi) => baseAlive(bi));
 }
 const HORDE = 25;                                 // zombies wait round their nest until there are this many, then attack together
-const ZOMBIE_CAP = () => Math.max(MOBILE ? 250 : 500, nests.filter((n) => n.alive).length * (HORDE + 3));
+// Each nest's hordes grow: the first moves out at 25, then 50, 100, 200, 500, and 500 every time after (half that on
+// phones). The live-zombie cap grows with them, up to a hard ceiling so the game stays playable.
+const HORDES = [25, 50, 100, 200, 500];
+const hordeSize = (n) => Math.round(HORDES[Math.min(HORDES.length - 1, n.wave || 0)] * (MOBILE ? 0.5 : 1));
+const ZOMBIE_CEILING = () => (MOBILE ? 400 : 1000);
+const ZOMBIE_CAP = () => Math.min(ZOMBIE_CEILING(), Math.max(MOBILE ? 250 : 500, nests.filter((n) => n.alive).reduce((s, n) => s + hordeSize(n) + 10, 0)));
 let nests = [];                    // { cx, cy, x, y, hp, alive, age, clock, from }  from = enemy base index, or -1
 
 // --- nests ------------------------------------------------------------------------------------------------
@@ -3681,6 +3720,7 @@ function addNest(cx, cy, from, quiet) {
 }
 function destroyNest(n, pi) {
   if (!n.alive) return;
+  if (zc() && zc().mode === 'survival') { n.hp = NEST_HP; return; }      // survival: the nests can't be destroyed
   n.alive = false;
   if (pi >= 0) players[pi].score += 2000;
   explosion(n.x, n.y, 10, 52);
@@ -3704,9 +3744,9 @@ function setupZombies(mode) {
     const x = 24 + Math.floor(g() * (SIZE - 48)), y = 24 + Math.floor(g() * (SIZE - 48));
     if (world.ground[y * SIZE + x] > T.SHALLOW && !cellBlocks('foot', x, y) && far(x, y, 45) && spots.every(([a, b]) => Math.hypot(a - x, b - y) > 40)) spots.push([x, y]);
   }
-  const extra = mode === 'zombies' ? 2 : 2 + Math.floor(world.bases.length / 3);
+  const extra = mode === 'zombies' || mode === 'survival' ? 2 : 2 + Math.floor(world.bases.length / 3);
   for (const [x, y] of spots.slice(0, extra)) addNest(x, y, -1, true);
-  if (mode === 'zombies') {
+  if (mode === 'zombies' || mode === 'survival') {
     for (const e of enemies) if (e.alive) { e.alive = false; e.gone = true; }
     for (const t of world.targets) if (t.alive) {
       t.alive = false;
@@ -3728,7 +3768,7 @@ function updateZombies(dt) {
     n.age += dt; n.clock -= dt;
     if (n.clock > 0) continue;
     n.clock = Math.max(5, 10 - n.age / 60) * rand(0.8, 1.2);      // every 10 s at first, down to every 5 s by 5 minutes
-    const brood = Math.min(4, 2 + Math.floor(n.age / 150));               // 2 at a time, 3 from 2.5 minutes, 4 from 5
+    const brood = Math.round(Math.min(4, 2 + Math.floor(n.age / 150)) * (1 + (n.wave || 0) * 0.5));   // 2 at a time, 3 from 2.5 min, 4 from 5; more for the bigger waves
     for (let k = 0; k < brood && alive < ZOMBIE_CAP(); k++) {
       const a = rand(0, Math.PI * 2), r = rand(2.5, 4.5), cx = n.cx + Math.cos(a) * r, cy = n.cy + Math.sin(a) * r;
       if (cellBlocks('foot', Math.round(cx), Math.round(cy))) continue;
@@ -3739,11 +3779,14 @@ function updateZombies(dt) {
   // a nest's swarm moves out once it is big enough (a zombie waiting at nest k has base = 100 + k)
   const waiting = new Map();
   for (const e of enemies) if (e.alive && isZed(e.type) && e.base >= 100) waiting.set(e.base, (waiting.get(e.base) || 0) + 1);
+  const live = Math.max(1, nests.filter((q) => q.alive).length), share = Math.floor(ZOMBIE_CAP() / live) - 5;
   for (const [b, count] of waiting) {
     const n = nests[b - 100];
-    if (count < HORDE && n && n.alive) continue;           // still gathering (a destroyed nest's survivors just go)
+    const need = n ? Math.max(HORDE, Math.min(hordeSize(n), share)) : HORDE;   // if the cap stops it growing, go with what there is
+    if (count < need && n && n.alive) continue;            // still gathering (a destroyed nest's survivors just go)
     for (const e of enemies) if (e.alive && e.base === b) { e.base = -1; e.zgoal = null; }
-    if (count >= HORDE) say('A ZOMBIE HORDE OF ' + count + ' IS ON THE MOVE', 5);
+    if (n && n.alive) { n.wave = (n.wave || 0) + 1; if (typeof onHorde === 'function') onHorde(n, count); }
+    if (count >= HORDE) say('WAVE ' + (n ? n.wave : '') + ': A ZOMBIE HORDE OF ' + count + ' IS ON THE MOVE', 5);
   }
   for (const e of enemies) if (e.alive && isZed(e.type)) zombieThink(e, dt);
 }
@@ -3912,8 +3955,8 @@ function drawNest(n, x, y) {
 }
 
 // --- saving and syncing nests ---------------------------------------------------------------------------------
-const packNest = (n) => [n.cx, n.cy, n.from, n.alive ? 1 : 0, Math.round(n.age), Math.round(n.hp)];
-function unpackNest(a) { const n = addNest(a[0], a[1], a[2], true); nests.pop(); n.alive = !!a[3]; n.age = a[4] || 0; n.hp = a[5] || NEST_HP; return n; }
+const packNest = (n) => [n.cx, n.cy, n.from, n.alive ? 1 : 0, Math.round(n.age), Math.round(n.hp), n.wave || 0];
+function unpackNest(a) { const n = addNest(a[0], a[1], a[2], true); nests.pop(); n.alive = !!a[3]; n.age = a[4] || 0; n.hp = a[5] || NEST_HP; n.wave = a[6] || 0; return n; }
 function mergeNests(a, b) {
   const m = new Map();
   for (const n of a || []) m.set(n[0] + ',' + n[1], n.slice());
@@ -4331,6 +4374,7 @@ function buy(pi, id) {
     e.slot = myUnits(pi).length;
     if (type === 'tank') e.hp = 450;                 // yours are the newer model
     else if (isGroundVeh(type)) e.hp = Math.round(ENEMY[type].hp * 1.6);
+    e.hp = Math.round(e.hp * (1 + 0.2 * upg(pi, 'units')));          // TOUGH UNITS upgrade
     if (e.order === 'HOLD') e.hold = { x: e.x, y: e.y };
     enemies.push(e);
     if (role === 'host') netSend({ t: 'enew', a: packExtra(e) });
@@ -4388,7 +4432,7 @@ function unitFire(e, def0, tg) {
   const a = aimOf(e), reach = isFoot(e.type) ? 6 : 24;
   const x0 = e.x + Math.cos(a) * reach, y0 = e.y + Math.sin(a) * reach * 0.5, z0 = def.z + (e.gar >= 0 ? 12 : 0) + (e.post ? POST_LIFT : 0);
   const aimX = tg.x + (isFoot(e.type) && !BLAST[e.type] && e.type !== 'sniper' ? rand(-6, 6) : 0), aimY = tg.y, lk = LOOK(type);
-  const b = BLAST[type] || BLAST[lk], dmg = (type === 'inf' ? 4 : type === 'sniper' ? 40 : type === 'flame' ? 8 : type === 'ftank' ? 14 : lk === 'mg' ? 5 : def.dmg) * (b ? b[1] : 1);
+  const b = BLAST[type] || BLAST[lk], dmg = (1 + 0.1 * upg(playerAt(e.side), 'fire')) * (type === 'inf' ? 4 : type === 'sniper' ? 40 : type === 'flame' ? 8 : type === 'ftank' ? 14 : lk === 'mg' ? 5 : def.dmg) * (b ? b[1] : 1);
   addShot({ enemy: true, ally: true, kind: type, pi: playerAt(e.side) >= 0 ? playerAt(e.side) : -2, foe: b ? null : tg.ref, blast: b ? b[0] : 0, x0, y0, z0, x1: aimX, y1: aimY, z1: tg.target ? 10 : 6, t: 0, T: Math.max(0.08, gdist(x0, y0, aimX, aimY) / def.shot), dmg, hit: 0, x: x0, y: y0, z: z0 });
 }
 // What an ally shot does when it lands (called from updateShots).
@@ -4578,7 +4622,9 @@ function setupPosts() {
   const add = (r, side, level) => towerCells(r).forEach((i, k) => {
     if (world.small[i] !== P.TOWER) return;
     const type = side === 'army' && level >= 3 && k === 0 ? 'sniper' : side === 'army' && level >= 4 && k === 3 ? 'rocket' : 'inf';
-    posts.push(makePost(i, side, type));
+    const p = makePost(i, side, type);
+    if (side !== 'army') p.hp = Math.round(p.hp * (1 + 0.3 * upgSeat(side, 'towers')));      // TOWER GUARDS upgrade
+    posts.push(p);
   });
   const lvl = campaign ? campaign.spec.garrison : 2;
   if (armyOn()) world.bases.forEach((b, bi) => { if (!(campaign && campaign.built.includes(bi))) add(b, 'army', lvl); });
@@ -4739,7 +4785,7 @@ function setupCivilians() {
   }
   // highways out in the country are roads too, but nobody walks along them: only roads beside pavement count
   for (let i = 0; i < civWalk.length; i++) if (civWalk[i] === 1) { const x = i % SIZE, y = (i / SIZE) | 0; if (!near(x, y, (a, b) => civWalkable(a, b) === 2)) civWalk[i] = 0; }
-  if (!pave.length) return;
+  if (!pave.length) { if (typeof setupRescues === 'function') setupRescues(); return; }
   const g = mulberry32(seed * 7 + 501), cap = Math.min(MOBILE ? 70 : 110, Math.round(pave.length / 3.5));
   for (let k = 0; k < cap; k++) {
     const i = pave[Math.floor(g() * pave.length)], x = i % SIZE, y = (i / SIZE) | 0;
@@ -4747,6 +4793,7 @@ function setupCivilians() {
     civs.push({ id: k, look: k % 3, cx: x, cy: y, x: cellX(x + ox, y + oy), y: cellY(x + ox, y + oy), ox, oy, h: g() * Math.PI * 2, dir: [[1, 0], [-1, 0], [0, 1], [0, -1]][Math.floor(g() * 4)],
       alive: true, hp: 6, st: 0, phase: g() * 4, idle: 0, panic: 0, inside: -1, rise: 0 });
   }
+  if (typeof setupRescues === 'function') setupRescues();          // people waiting to be rescued come after the crowd
 }
 
 // --- who is where ------------------------------------------------------------------------------------------
@@ -4822,6 +4869,7 @@ function updateCivilians(dt) {
       }
       continue;
     }
+    if (c.res !== undefined) { rescueThink(c, dt); continue; }    // waiting to be rescued
     if (c.inside >= 0) {                                   // hiding: come out when it's quiet, or if the building goes
       const lg = world.large[c.inside];
       if (lg < 0 || lg === L.RUIN) { c.inside = -1; c.st = 2; c.panic = time + 6; continue; }
@@ -4916,11 +4964,288 @@ function guestCivilians(dt) {
 
 // --- drawing --------------------------------------------------------------------------------------------------
 function drawCiv(c, x, y) {
-  const sheet = IMG['civ' + c.look];
+  const sheet = c.look === 3 ? IMG.soldier_f : IMG['civ' + c.look];   // look 3: a downed pilot
   if (!sheet) return;
   if (!c.alive) { fallen(sheet, x, y, c.h, c.fallT, c.id * 7.3); return; }
+  if (c.st === 6) {                                                    // waving for a ride, with a little flare of colour over them
+    ctx.drawImage(sheet, frame8(c.h) * 32, (Math.floor(time * 3 + c.id) % 2 ? 3 : 1) * 40, 32, 40, x - 16, y - 30, 32, 40);
+    if (c.id === rescues[c.res].ids[0]) { const b = Math.round(Math.sin(time * 4) * 2); ctx.fillStyle = '#fff0a0'; ctx.fillRect(x - 1, y - 44 + b, 3, 7); ctx.fillRect(x - 1, y - 35 + b, 3, 2); }
+    return;
+  }
   const row = c.st === 1 ? 1 : c.st === 2 ? [3, 0][Math.floor(c.phase * 1.5) % 2] : [0, 1, 2, 1][Math.floor(c.phase) % 4];
   ctx.drawImage(sheet, frame8(c.h) * 32, row * 40, 32, 40, x - 16, y - 30, 32, 40);
+}
+
+// --- missions: rescues, briefings, the priority target, the war chest and upgrades, survival ------------------------
+// Loaded after civilians.js. The host (or a solo game) decides everything; a guest sees rescued people through the
+// civilian snapshot and gets the progress (war chest, upgrades, survival records) in 'prog' messages.
+
+// ===== rescues ====================================================================================================
+// Bonus objectives, 1 to 3 a map: civilians trapped in a city, a downed pilot, prisoners held near an enemy base.
+// Hover low and slow (under 70 px/s) beside them, or drive up in a jeep or buggy, and they run aboard. Fly them to any
+// of your pads and they're safe: credits for you, the same again into your war chest. Zombies go for them; they stay
+// put (they're trapped). Lose the vehicle and you lose them.
+const CARRY = { apache: 6, scout: 4, jeep: 3, buggy: 2 };
+const RESCUE_PAY = { civ: 100, pilot: 300, pow: 150 };
+let rescues = [];                  // { kind, cx, cy, n, ids: [civ ids], label }
+function setupRescues() {
+  rescues = [];
+  if (!world || !civWalk) return;
+  const g = mulberry32(world.seed * 11 + 7), home = world.home;
+  const open = (x, y) => x > 3 && y > 3 && x < SIZE - 4 && y < SIZE - 4 && world.at(x, y) > T.SHALLOW && !world.blocked[y * SIZE + x] && world.small[y * SIZE + x] < 0 && world.large[y * SIZE + x] < 0;
+  const farFromBases = (x, y, d) => [world.homeBase, ...(world.homeBase2 ? [world.homeBase2] : []), ...world.bases].every((b) => Math.hypot(x - b.x - 6, y - b.y - 6) > d);
+  const add = (kind, cx, cy, n, look, label) => {
+    const r = { kind, cx, cy, n, ids: [], label };
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * Math.PI * 2, ox = Math.cos(a) * 0.6, oy = Math.sin(a) * 0.6;
+      const c = { id: civs.length, look, cx, cy, x: cellX(cx + ox, cy + oy), y: cellY(cx + ox, cy + oy), ox, oy, h: a + Math.PI, dir: [1, 0], alive: true, hp: 6, st: 6, phase: k, idle: 0, panic: 0, inside: -1, rise: 0, res: rescues.length };
+      civs.push(c); r.ids.push(c.id);
+    }
+    rescues.push(r);
+  };
+  // 1. civilians trapped in the biggest city: on the pavement beside a building near the middle
+  const city = world.cities.slice().sort((a, b) => b.s - a.s)[0];
+  if (city) {
+    let best = null, bd = 1e9;
+    for (let y = city.y; y < city.y + city.s; y++) for (let x = city.x; x < city.x + city.s; x++) {
+      if (civWalkable(x, y) !== 2) continue;
+      const nearB = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => world.large[(y + b) * SIZE + x + a] >= 0 || world.large[(y + b + 1) * SIZE + x + a + 1] >= 0);
+      const d = Math.hypot(x - city.x - city.s / 2, y - city.y - city.s / 2) + g() * 3;
+      if (nearB && d < bd) { bd = d; best = [x, y]; }
+    }
+    if (best) add('civ', best[0], best[1], 4 + Math.floor(g() * 3), Math.floor(g() * 3), 'CIVILIANS TRAPPED IN THE CITY');
+  }
+  // 2. a downed pilot out in the wilds, well away from everything
+  for (let t = 0; t < 600; t++) {
+    const x = 20 + Math.floor(g() * (SIZE - 40)), y = 20 + Math.floor(g() * (SIZE - 40));
+    if (!open(x, y) || Math.hypot(x - home.x, y - home.y) < 45 || !farFromBases(x, y, 16) || world.cities.some((c) => x > c.x - 4 && x < c.x + c.s + 4 && y > c.y - 4 && y < c.y + c.s + 4)) continue;
+    add('pilot', x, y, 1, 3, 'A DOWNED PILOT');
+    break;
+  }
+  // 3. prisoners held outside an enemy base (from map 3, or anywhere in free play), with two guards
+  if (world.bases.length && (!campaign || campaign.id >= 3)) {
+    const b = world.bases[Math.floor(g() * world.bases.length)];
+    for (let t = 0; t < 80; t++) {
+      const a = g() * Math.PI * 2, x = Math.round(b.x + 6 + Math.cos(a) * 11), y = Math.round(b.y + 6 + Math.sin(a) * 11);
+      if (!open(x, y)) continue;
+      add('pow', x, y, 4, 1, 'PRISONERS NEAR AN ENEMY BASE');
+      for (const [ox, oy] of [[2, 0], [-2, 1]]) { const e = makeEnemy('inf', cellX(x + ox, y + oy), cellY(x + ox, y + oy), world.bases.indexOf(b)); e.wave = false; enemies.push(e); }
+      break;
+    }
+  }
+  // the pilot's crash: smoke still rising
+  for (const r of rescues) if (r.kind === 'pilot') { const x = cellX(r.cx + 1.2, r.cy - 0.6), y = cellY(r.cx + 1.2, r.cy - 0.6); addEmitter({ x, y, kind: 'smoke', until: 1e9, rate: 4, w: 8 }); addEmitter({ x, y, kind: 'fire', until: 1e9, rate: 4, w: 5 }); }
+}
+const rescueLeft = (r) => r.ids.filter((id) => civs[id] && civs[id].alive && !civs[id].gone).length;
+function rescueThink(c, dt) {
+  // trapped: wave until a ride turns up, then run to it
+  if (c.board !== undefined) {
+    const pi = c.board, pl = players[pi], h = helis[pi];
+    if (!pl.active || pl.dead || (pl.pax || 0) >= (CARRY[pl.kind] || 0) || gdist(c.x, c.y, h.x, h.y) > 260) { c.board = undefined; c.st = 6; return; }
+    c.st = 2; civStep(c, h.x, h.y, CIV_RUN * 1.2, dt);
+    if (gdist(c.x, c.y, h.x, h.y) < 28) {
+      c.alive = false; c.gone = true; c.saved = true; c.st = 5;
+      pl.pax = (pl.pax || 0) + 1; pl.paxPay = (pl.paxPay || 0) + RESCUE_PAY[rescues[c.res].kind];
+      sayTo(pi, 'ON BOARD: ' + pl.pax + ' OF ' + CARRY[pl.kind], 1.5);
+    }
+    return;
+  }
+  c.st = 6; c.phase += dt * 3;
+  for (let pi = 0; pi < 2; pi++) {
+    const pl = players[pi], h = helis[pi];
+    if (!pl.active || pl.dead || !CARRY[pl.kind] || (pl.pax || 0) >= CARRY[pl.kind]) continue;
+    if (gdist(c.x, c.y, h.x, h.y) < 150 && Math.hypot(h.vx, h.vy) < 70) { c.board = pi; break; }
+  }
+}
+function updateRescues(dt) {                          // host / solo: deliveries, and passengers lost with the vehicle
+  for (let pi = 0; pi < 2; pi++) {
+    const pl = players[pi];
+    if (!pl.active || !pl.pax) continue;
+    if (pl.dead) { say(pl.pax + ' PASSENGER' + (pl.pax > 1 ? 'S' : '') + ' LOST', 4); pl.pax = 0; pl.paxPay = 0; continue; }
+    if (!onOwnPad(pi)) continue;
+    const n = pl.pax, pay = pl.paxPay || 0;
+    pl.pax = 0; pl.paxPay = 0; pl.score += 500 * n;
+    addCredits(pi, pay); chestAdd(pi, pay);
+    say('RESCUED ' + n + '. +' + pay + ' CREDITS (AND ' + pay + ' TO YOUR WAR CHEST)', 4);
+    if (typeof sfx === 'function') sfx('win');
+    if (campaign) autosave(true);
+  }
+}
+const packRescued = () => civs.filter((c) => c.res !== undefined && c.gone).map((c) => c.id);
+function unpackRescued(ids) { for (const id of ids || []) { const c = civs[id]; if (c && c.res !== undefined) { c.alive = false; c.gone = true; c.st = 5; } } }
+
+// ===== the priority target ========================================================================================
+// One enemy base is marked on the briefing and the map. Knock it out before any other base falls: +400 credits each.
+function priorityBase() {
+  if (!campaign || !armyOn() || world.bases.length < 2) return -1;
+  return campaign.spec.seed % world.bases.length;
+}
+function priorityCheck(fallenBi) {                    // called when an enemy base falls (host / solo)
+  const bi = priorityBase();
+  if (bi < 0 || campaign.prio) return;
+  if (fallenBi === bi) {
+    campaign.prio = 'done';
+    for (let pi = 0; pi < 2; pi++) if (players[pi].active) { addCredits(pi, 400); chestAdd(pi, 400); }
+    say('PRIORITY TARGET DOWN FIRST. +400 CREDITS EACH', 5);
+  } else { campaign.prio = 'missed'; say('ANOTHER BASE FELL FIRST: PRIORITY BONUS MISSED', 3); }
+}
+
+// ===== war chest and upgrades =====================================================================================
+// Clearing a map puts each player's leftover credits into their war chest; rescues and the priority bonus add to it as
+// they happen. Spend it on upgrades that last for the whole campaign. Kept in the campaign's progress, per player name.
+const UPGRADES = [
+  { id: 'armor', name: 'ARMOUR',     info: '15% less damage, every vehicle and on foot' },
+  { id: 'fire',  name: 'FIREPOWER',  info: '+10% damage, you and your units' },
+  { id: 'ammo',  name: 'AMMO LOAD',  info: '+25% ammunition' },
+  { id: 'fuel',  name: 'FUEL',       info: 'helicopters burn 20% less fuel' },
+  { id: 'units', name: 'TOUGH UNITS', info: 'units you buy: +20% hit points' },
+  { id: 'towers', name: 'TOWER GUARDS', info: 'your tower guards: +30% hit points' },
+  { id: 'funds', name: 'FUNDING',    info: '+150 credits at the start of every battle' },
+];
+const UPG_COST = [300, 700, 1200], UPG_MAX = 3;
+let progCache = null;
+function progNow() { if (!progCache) progCache = loadProgress(); return progCache; }
+function seatName(seat) {
+  const n = campaign && campaign.seats ? campaign.seats[seat] : (seat === 0 ? myName() : players[1].who);
+  return n || (seat ? 'PLAYER 2' : 'PLAYER 1');
+}
+const nameOf = (pi) => seatName(seatOf(pi));
+function chestOf(name) { const c = (progNow().chest || {})[name]; return c ? Math.max(0, (c.e || 0) - (c.s || 0)) : 0; }
+function upgSeat(seat, key) { const u = (progNow().upg || {})[seatName(seat)]; return u ? u[key] || 0 : 0; }
+const upg = (pi, key) => (pi >= 0 && players[pi] ? upgSeat(seatOf(pi), key) : 0);
+function editProgress(fn) {                            // change the progress, save it (and to the cloud), tell the guest
+  const p = loadProgress();
+  fn(p);
+  saveProgress(p); progCache = null;
+  if (role === 'host') netSend({ t: 'prog', p });
+}
+function chestAdd(pi, amount) {
+  if (!authority() || amount <= 0) return;
+  const name = nameOf(pi);
+  editProgress((p) => { p.chest = p.chest || {}; const c = p.chest[name] || (p.chest[name] = { e: 0, s: 0 }); c.e += Math.round(amount); });
+}
+function buyUpgrade(pi, key) {
+  if (!authority()) { netSend({ t: 'upg', key }); return; }
+  const name = nameOf(pi), lvl = upg(pi, key);
+  if (lvl >= UPG_MAX) { sayTo(pi, 'ALREADY AT THE TOP LEVEL', 2); return; }
+  if (chestOf(name) < UPG_COST[lvl]) { sayTo(pi, 'NOT ENOUGH IN THE WAR CHEST', 2); return; }
+  editProgress((p) => {
+    p.chest = p.chest || {}; const c = p.chest[name] || (p.chest[name] = { e: 0, s: 0 }); c.s += UPG_COST[lvl];
+    p.upg = p.upg || {}; const u = p.upg[name] || (p.upg[name] = {}); u[key] = lvl + 1;
+  });
+  sayTo(pi, UPGRADES.find((u) => u.id === key).name + ' UPGRADED TO LEVEL ' + (lvl + 1), 2);
+  if (typeof soundSay === 'function') soundSay('BUILT');
+}
+// When a map is cleared: leftover credits into the war chest.
+function chestOnWin() {
+  if (!authority()) return;
+  for (let pi = 0; pi < 2; pi++) if (players[pi].active) chestAdd(pi, credits(pi));
+}
+// Funding upgrade: once per battle, the first time each seat is filled.
+function fundingTick() {
+  if (!campaign || !authority()) return;
+  campaign.cbon = campaign.cbon || [0, 0];
+  for (let pi = 0; pi < 2; pi++) {
+    if (!players[pi].active) continue;
+    const s = seatOf(pi);
+    if (campaign.cbon[s]) continue;
+    campaign.cbon[s] = 1;
+    const n = upgSeat(s, 'funds') * 150;
+    if (n) { addCredits(pi, n); sayTo(pi, 'FUNDING: +' + n + ' CREDITS', 2); }
+  }
+}
+function upgradesScreen(back) {
+  const pi = me, name = nameOf(pi), chest = chestOf(name);
+  const body = $('camp-body');
+  body.innerHTML = '<p>UPGRADES · ' + name + '</p><p class="fine">WAR CHEST <b>' + chest + '</b> · Clear maps to add your leftover credits; rescues and priority targets pay in too. Upgrades last the whole campaign.</p>' +
+    '<div class="upgs">' + UPGRADES.map((u) => {
+      const lvl = upg(pi, u.id), cost = UPG_COST[lvl], top = lvl >= UPG_MAX;
+      return '<button class="buy upg" data-k="' + u.id + '"' + (top || chest < cost ? ' disabled' : '') + '><b>' + u.name + ' ' + '■'.repeat(lvl) + '□'.repeat(UPG_MAX - lvl) + '</b><i>' + (top ? 'MAX' : cost) + '</i><span>' + u.info + '</span></button>';
+    }).join('') + '</div><div class="row"><button id="upg-back">BACK</button></div>';
+  for (const b of body.querySelectorAll('button.upg')) b.onclick = () => { buyUpgrade(pi, b.dataset.k); setTimeout(() => upgradesScreen(back), role === 'guest' ? 600 : 0); };
+  $('upg-back').onclick = back;
+}
+function openUpgrades(back) {
+  $('camp').hidden = false; keys.clear();
+  upgradesScreen(back || (() => closeMaps()));
+}
+
+// ===== briefings ==================================================================================================
+function objectiveLines() {
+  const out = [];
+  if (!campaign) return out;
+  if (campaign.mode === 'survival') {
+    out.push('Hold out as long as you can. The nests can\'t be destroyed, and every horde is bigger than the last: 25, 50, 100, 200, then 500.');
+    out.push('It ends when your home base is wrecked. Best here: ' + (progNow().surv && progNow().surv[campaign.id] ? 'wave ' + progNow().surv[campaign.id] : 'none yet') + '.');
+    return out;
+  }
+  if (armyOn()) out.push('Destroy all ' + world.bases.length + ' enemy bases.');
+  if (zombiesOn()) out.push('Destroy all ' + nests.filter((n) => n.alive).length + ' zombie nests. Their hordes grow: 25, 50, 100, 200, then 500.');
+  const pb = priorityBase();
+  if (pb >= 0) out.push('PRIORITY TARGET: the base marked with a yellow star. Take it out before any other: +400 credits each.');
+  if (campaign.spec.waves && armyOn()) out.push('Expect counter-attacks on your bases.');
+  for (const r of rescues) out.push('BONUS: ' + r.label + ' (' + (r.n > 1 ? r.n + ' people, +' + RESCUE_PAY[r.kind] + ' each' : '+' + RESCUE_PAY[r.kind]) + ').');
+  if (rescues.length) out.push('To rescue: hover low and slow beside them (or drive up in a jeep or buggy), then take them to any of your pads.');
+  return out;
+}
+function openBriefing() {
+  if (!campaign) return;
+  keys.clear();
+  const body = $('menu-body');
+  $('menu').querySelector('h2').textContent = 'BRIEFING'; $('menu').classList.remove('base');
+  const spec = campaign.spec;
+  body.innerHTML = '<p><b>MAP ' + campaign.id + ': ' + spec.name + '</b> · ' + (MODES[campaign.mode] || campaign.mode) + '</p><p class="fine">' + spec.brief + '</p>' +
+    '<ul class="obj">' + objectiveLines().map((l) => '<li>' + l + '</li>').join('') + '</ul>' +
+    '<p class="fine">WAR CHEST ' + chestOf(nameOf(me)) + '</p>' +
+    '<button id="b-go">GO</button><button id="b-upg">UPGRADES</button>';
+  $('menu').hidden = false;
+  $('b-go').onclick = () => closeMenu();
+  $('b-upg').onclick = () => { closeMenu(); openUpgrades(() => { closeMaps(); openBriefing(); }); };
+}
+
+// ===== survival ===================================================================================================
+// Any unlocked map, zombies only: the army's bases are already nests, the nests can't be destroyed, and the hordes
+// keep growing. Count the waves; it ends when your home base is wrecked. Best wave per map is kept in the progress.
+function survivalScreen() {
+  const prog = loadProgress(), body = $('camp-body');
+  $('camp').hidden = false; keys.clear();
+  body.innerHTML = '<p>ZOMBIE SURVIVAL</p><p class="fine">Pick a map. No army; every enemy base is already a nest and the nests can\'t be destroyed. Hordes grow 25, 50, 100, 200, 500. Last as long as you can.</p><div class="maps">' +
+    MAPS.map((m) => {
+      const open = m.id <= prog.unlocked, best = (prog.surv || {})[m.id];
+      return '<button class="map' + (open ? '' : ' locked') + '" data-id="' + m.id + '"' + (open ? '' : ' disabled') + '><span class="n">' + m.id + '</span><b>' + m.name + '</b><span class="tag">' + (open ? (best ? 'BEST: WAVE ' + best : 'NEW') : 'LOCKED') + '</span></button>';
+    }).join('') + '</div><div class="row"><button id="surv-back">BACK</button></div>';
+  for (const b of body.querySelectorAll('button.map')) b.onclick = () => { closeMaps(); if (titleOpen) closeTitle(); startMap(+b.dataset.id, { mode: 'survival' }); };
+  $('surv-back').onclick = () => { closeMaps(); if (titleOpen) openTitle(); };
+}
+function onHorde(n, count) {                           // a nest's horde just moved out (host / solo)
+  if (!campaign || campaign.mode !== 'survival' || campaign.over) return;
+  campaign.survWave = (campaign.survWave || 0) + 1;
+  if (role === 'host') netSend({ t: 'swave', w: campaign.survWave });
+}
+function homeStanding(r) {
+  return [[1, 1], [1, 4], [8, 1], [8, 8]].some(([x, y]) => { const l = world.large[(r.y + y + 1) * SIZE + r.x + x + 1]; return l >= 0 && l !== L.RUIN; });
+}
+function survivalTick() {                               // once a second (host / solo)
+  if (!campaign || campaign.mode !== 'survival' || campaign.over) return;
+  const homes = [world.homeBase, ...(world.homeBase2 && players[1].active ? [world.homeBase2] : [])];
+  if (homes.some(homeStanding)) return;
+  campaign.over = true;
+  const w = campaign.survWave || 0, prev = (progNow().surv || {})[campaign.id] || 0;
+  if (w > prev) editProgress((p) => { p.surv = p.surv || {}; p.surv[campaign.id] = Math.max(p.surv[campaign.id] || 0, w); });
+  say('OVERRUN. YOU HELD OUT FOR ' + w + ' WAVE' + (w === 1 ? '' : 'S') + (w > prev ? '. NEW BEST' : ''), 8);
+  if (role === 'host') netSend({ t: 'sover', w });
+  setTimeout(() => { if (campaign && campaign.over) survivalScreen(); }, 5000);
+}
+
+// ===== the per-second hook ==========================================================================================
+let missionClock = 0;
+function updateMissions(dt) {                          // host / solo
+  updateRescues(dt);
+  missionClock += dt;
+  if (missionClock < 1) return;
+  missionClock = 0;
+  fundingTick();
+  survivalTick();
 }
 
 // ---------------------------------------------------------------------------
@@ -5547,7 +5872,7 @@ const SCREENS = ['camp', 'place', 'mp', 'menu', 'title'];
 function openScreen() { for (const id of SCREENS) { const el = $(id); if (el && !el.hidden) return el; } return null; }
 function assignHotkeys(el) {
   const used = new Set(), map = new Map();
-  const btns = [...el.querySelectorAll('button')].filter((b) => b.offsetParent !== null);   // disabled ones too, so keys don't shift as credits change
+  const btns = [...el.querySelectorAll('button')].filter((b) => b.offsetParent !== null).sort((a, b) => a.classList.contains('map') - b.classList.contains('map'));   // long map lists get keys last   // disabled ones too, so keys don't shift as credits change
   for (const b of btns) {
     if (/-close$/.test(b.id) || /^(BACK|CLOSE|DONE)\b/.test(b.textContent.trim().toUpperCase())) { if (b.getAttribute('data-hk') !== 'ESC') b.setAttribute('data-hk', 'ESC'); continue; }
     const label = (b.textContent || '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').trim();
@@ -6151,6 +6476,7 @@ function openTitle() {
   const go = (fn) => () => { closeTitle(); fn(); };
   $('t-continue').onclick = go(() => { openMaps(); pickMap(id, $('camp-body')); snapCamera(); });
   $('t-maps').onclick = go(() => openMaps());
+  $('t-surv').onclick = () => survivalScreen();
   $('t-multi').onclick = go(() => openMulti());
   $('t-free').onclick = go(() => startFreePlay());
   $('t-place').onclick = go(() => openPlace());
@@ -6164,7 +6490,7 @@ function openMenu() {
   $('menu').querySelector('h2').textContent = 'PAUSED'; $('menu').classList.remove('base');
   const where = campaign ? 'MAP ' + campaign.id + ': ' + campaign.spec.name + (campaign.won ? ' (CLEARED)' : (armyOn() ? ' · ' + world.bases.filter((_, bi) => baseAlive(bi)).length + ' ENEMY BASES LEFT' : '') + (zombiesOn() ? ' · ' + nests.filter((n) => n.alive).length + ' NESTS' : '')) : currentPlace ? currentPlace.name : 'FREE PLAY';
   body.innerHTML = '<p>' + where + '</p>' +
-    '<button id="m-resume">RESUME</button><button id="m-maps">CAMPAIGN MAPS</button>' +
+    '<button id="m-resume">RESUME</button>' + (campaign ? '<button id="m-brief">BRIEFING</button>' : '') + '<button id="m-upg">UPGRADES</button><button id="m-maps">CAMPAIGN MAPS</button>' +
     '<button id="m-multi">' + (role === 'solo' ? 'PLAY TOGETHER' : NET.connected ? 'TWO PLAYERS: LINKED' : 'TWO PLAYERS: NO LINK') + '</button>' +
     '<button id="m-ctl">CONTROLS: ' + controlMode + '</button>' +
     '<button id="m-snd">' + soundLabel() + '</button>' +
@@ -6175,6 +6501,8 @@ function openMenu() {
   $('menu').hidden = false;
   const go = (fn) => () => { closeMenu(); fn(); };
   $('m-resume').onclick = go(() => {});
+  if ($('m-brief')) $('m-brief').onclick = () => openBriefing();
+  $('m-upg').onclick = go(() => openUpgrades(() => { closeMaps(); openMenu(); }));
   $('m-maps').onclick = go(() => openMaps());
   $('m-multi').onclick = go(() => openMulti());
   $('m-ctl').onclick = () => { toggleMode(); $('m-ctl').textContent = 'CONTROLS: ' + controlMode; };
@@ -6255,7 +6583,7 @@ loadImages().then(() => {
   resize();
   const qs = new URLSearchParams(location.search);
   if (qs.get('spot') || qs.has('free')) newWorld(seed);
-  else startMap(+qs.get('map') || loadProgress().last || 1);
+  else startMap(+qs.get('map') || loadProgress().last || 1, { noBrief: true });
   if (!qs.get('spot') && !qs.has('free') && !qs.get('map') && !/^#join=/.test(location.hash)) openTitle();
   mpFromLink();
   // dev hook: strike.html?spot=city|snow|jungle|desert|base  (used for test screenshots)
