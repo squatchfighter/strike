@@ -1191,6 +1191,15 @@ function rideNear(pi) {
   }
   return u && (!v0 || bd < gdist(h.x, h.y, v0.x, v0.y)) ? u : v0;
 }
+function takePickup(pi, p, k) {
+  const pl = players[pi], kind = veh(pi);
+  p.taken = true; p.hooked = undefined;
+  if (role === 'host') netSend({ t: 'pick', k });
+  if (p.type === 'fuel') { pl.fuel = Math.min(PLAYER_MAX.fuel, pl.fuel + 50); sayTo(pi, 'FUEL PICKED UP'); }
+  else if (p.type === 'ammo') { pl.ammo = fullAmmo(pl.kind, pi); sayTo(pi, 'AMMO RESTOCKED'); }
+  else { pl.armor = Math.min(kind.armor, pl.armor + kind.armor * 0.5); sayTo(pi, pl.kind === 'foot' ? 'PATCHED UP' : 'ARMOR REPAIRED'); }
+  for (let j = 0; j < 8; j++) puff('spark', p.x, p.y, 6, { vx: rand(-60, 60), vy: rand(-30, 30), vz: rand(80, 200), life: rand(0.4, 0.8) });
+}
 function nearestVehicle(x, y) {
   let best = null, bd = 60;
   for (const v of vehicles) {
@@ -1825,17 +1834,41 @@ function updatePlayer(pi, dt) {
     else if (!(targetAt.has(i) && targetAt.get(i).alive)) destroyProp(i, cx, cy, false);
     else if (!targetAt.get(i).large) destroyTarget(targetAt.get(i), pi);
   }
-  for (let k = 0; k < pickups.length; k++) {
-    const p = pickups[k];
-    if (p.taken || gdist(heli.x, heli.y, p.x, p.y) > 34) continue;
-    if (p.type === 'fuel' && !kind.fuel) continue;         // no use for fuel in this vehicle: leave it for later
-    p.taken = true;
-    if (role === 'host') netSend({ t: 'pick', k });
-    if (p.type === 'fuel') { pl.fuel = Math.min(PLAYER_MAX.fuel, pl.fuel + 50); sayTo(pi, 'FUEL PICKED UP'); }
-    else if (p.type === 'ammo') { pl.ammo = fullAmmo(pl.kind, pi); sayTo(pi, 'AMMO RESTOCKED'); }
-    else { pl.armor = Math.min(kind.armor, pl.armor + kind.armor * 0.5); sayTo(pi, pl.kind === 'foot' ? 'PATCHED UP' : 'ARMOR REPAIRED'); }
-    for (let j = 0; j < 8; j++) puff('spark', p.x, p.y, 6, { vx: rand(-60, 60), vy: rand(-30, 30), vz: rand(80, 200), life: rand(0.4, 0.8) });
+  // Helicopters winch crates up on a hook: hover over one, slow, and the cable goes down, hooks it and reels it in
+  // (about 1.4 s). Move off before it's hooked and the cable comes back up empty. On the ground you just pick them up.
+  const speed = Math.hypot(heli.vx, heli.vy);
+  if (kind.air) {
+    const wn = pl.winch || (pl.winch = { k: -1, t: 0, got: false });
+    if (wn.k < 0) {
+      for (let k = 0; k < pickups.length; k++) {
+        const p = pickups[k];
+        if (p.taken || p.hooked !== undefined || gdist(heli.x, heli.y, p.x, p.y) > 40 || speed > 80 || (p.type === 'fuel' && !kind.fuel)) continue;
+        wn.k = k; wn.got = false; break;
+      }
+    }
+    if (wn.k >= 0) {
+      const p = pickups[wn.k];
+      if (!wn.got) {
+        if (!p || p.taken || gdist(heli.x, heli.y, p.x, p.y) > 60 || speed > 120) { wn.k = -1; }        // drifted off: reel in empty
+        else { wn.t = Math.min(1, wn.t + dt / 0.6); if (wn.t >= 1) { wn.got = true; p.hooked = pi; sfx('click', heli.x, heli.y); if (role === 'host') netSend({ t: 'hook', k: wn.k, pi }); } }
+      } else {
+        wn.t = Math.max(0, wn.t - dt / 0.8);
+        p.x = heli.x; p.y = heli.y;                                          // it swings along under you
+        if (wn.t <= 0) { wn.k = -1; wn.got = false; takePickup(pi, p, pickups.indexOf(p)); }
+      }
+    }
+    if (wn.k < 0) wn.t = Math.max(0, wn.t - dt / 0.5);
+  } else {
+    if (pl.winch && pl.winch.k >= 0) { const p = pickups[pl.winch.k]; if (p) p.hooked = undefined; pl.winch.k = -1; pl.winch.t = 0; }   // out of the helicopter: let go
   }
+  if (!kind.air) for (let k = 0; k < pickups.length; k++) {
+    const p = pickups[k];
+    if (p.taken || p.hooked !== undefined || gdist(heli.x, heli.y, p.x, p.y) > 34) continue;
+    if (p.type === 'fuel' && !kind.fuel) continue;         // no use for fuel in this vehicle: leave it for later
+    takePickup(pi, p, k);
+  }
+  // sitting on the home helipad resupplies whatever you are in
+  rescueLadder(pi, dt);
   // sitting on the home helipad resupplies whatever you are in
   const pad = nearestPad(heli.x, heli.y);
   const onPad = gdist(heli.x, heli.y, pad.x, pad.y) < 64 && Math.hypot(heli.vx, heli.vy) < 90 && !(typeof padUnderAttack === 'function' && padUnderAttack(pad));
@@ -1981,7 +2014,7 @@ function collectDynamics(ox, oy) {
   if (typeof nests !== 'undefined') for (const n of nests) if (vis(n.x, n.y)) add(n.y, { k: 'nest', n });
   for (const c of corpses) if (vis(c.x, c.y)) add(c.y - 1, { k: 'corpse', c });
   if (typeof civs !== 'undefined') for (const c of civs) if (!c.gone && c.inside < 0 && vis(c.x, c.y) && !(!c.alive && time - c.fallT > 60)) add(c.alive ? c.y : c.y - 1, { k: 'civ', c });
-  for (const p of pickups) if (!p.taken && vis(p.x, p.y)) add(p.y, { k: 'pickup', p });
+  for (const p of pickups) if (!p.taken && p.hooked === undefined && vis(p.x, p.y)) add(p.y, { k: 'pickup', p });   // a hooked crate is drawn on the cable
   for (const v of vehicles) if (v && !v.gone && vis(v.x, v.y) && !(VEH[v.kind].air && v.alive && v.alt > 3)) add(v.y, { k: 'veh', v });
   for (let pi = 0; pi < 2; pi++) if (players[pi].active && !players[pi].dead && players[pi].kind === 'foot' && !(players[pi].gar >= 0) && vis(helis[pi].x, helis[pi].y)) add(helis[pi].y, { k: 'foot', pi });
   for (const c of cars) {
@@ -2373,7 +2406,8 @@ function buildSnapshot() {
     if (gdist(cellX(car.cx, car.cy), cellY(car.cx, car.cy), g.x, g.y) > 1500) continue;
     c.push(car.id, car.cx, car.cy, car.nx, car.ny, +car.prog.toFixed(2));
   }
-  const pl = (p) => [r(p.armor), +p.fuel.toFixed(1), Math.floor(p.ammo[0]), Math.floor(p.ammo[1]), Math.floor(p.ammo[2]), p.score, +p.dead.toFixed(2), p.kind, p.vid, p.inf, p.gar >= 0 ? p.gar : -1, credits(players.indexOf(p)), p.order || 'FOLLOW', seatOf(players.indexOf(p)), p.landing ? 1 : 0, p.pax || 0];
+  const pl = (p) => [r(p.armor), +p.fuel.toFixed(1), Math.floor(p.ammo[0]), Math.floor(p.ammo[1]), Math.floor(p.ammo[2]), p.score, +p.dead.toFixed(2), p.kind, p.vid, p.inf, p.gar >= 0 ? p.gar : -1, credits(players.indexOf(p)), p.order || 'FOLLOW', seatOf(players.indexOf(p)), p.landing ? 1 : 0, p.pax || 0,
+      p.winch ? Math.round(p.winch.t * 100) : 0, p.winch && p.winch.got && pickups[p.winch.k] ? ['fuel', 'ammo', 'armor'].indexOf(pickups[p.winch.k].type) + 1 : 0, Math.round((p.ladder || 0) * 100)];
   const v = [];
   for (const ve of vehicles) {
     if (!ve || ve.gone || (ve.by < 0 && gdist(ve.x, ve.y, g.x, g.y) > 1900)) continue;
@@ -2516,7 +2550,7 @@ function netMessage(m) {
         if (pi === me && a[0] < pl.armor - 0.5) { pl.hitFlash = 0.14; shake = Math.max(shake, 3); }
         pl.armor = a[0]; pl.fuel = a[1]; pl.ammo = [a[2], a[3], a[4]]; pl.score = a[5]; pl.dead = a[6]; pl.kind = a[7]; pl.vid = a[8]; pl.inf = a[9] || 'rifle';
         if (a[13] !== undefined) pl.seat = a[13];
-        pl.landing = !!a[14]; pl.pax = a[15] || 0;
+        pl.landing = !!a[14]; pl.pax = a[15] || 0; pl.winchT = (a[16] || 0) / 100; pl.hookType = a[17] || 0; pl.ladder = (a[18] || 0) / 100;
         if (a[11] !== undefined) { const k = players.indexOf(pl); if (campaign) { if (!campaign.credits) campaign.credits = [0, 0]; campaign.credits[seatOf(k)] = a[11]; } else pl.credits = a[11]; pl.order = a[12]; }
         if (a[10] !== undefined) { if (a[10] >= 0 && pl.gar !== a[10] && pl === player) { const bp = bpos(a[10]); heli.x = bp.x; heli.y = bp.y; heli.gx = bp.x; heli.gy = bp.y * 2; } pl.gar = a[10]; }
       }
@@ -2569,6 +2603,7 @@ function netMessage(m) {
     case 'corpse': addCorpse(m.x, m.y, m.h); break;
     case 'tkill': if (world.targets[m.k]) world.targets[m.k].alive = false; break;
     case 'pick': if (pickups[m.k]) pickups[m.k].taken = true; break;
+    case 'hook': if (pickups[m.k]) pickups[m.k].hooked = m.pi; break;
     case 'car': cars = cars.filter((c) => c.id !== m.id); break;
     case 'say': sayLocal(m.text, m.secs); break;
     case 'hold': setHold(m.on, false, m.by); break;
@@ -4934,7 +4969,8 @@ function packCivs(g) {
     if (c.st === 5 && c.sent5) continue;
     if (gdist(c.x, c.y, g.x, g.y) > 1700) continue;
     if (c.st === 5) c.sent5 = true;
-    out.push(c.id, r(c.x), r(c.y), r(((c.h % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) * 10) * 8 + (c.inside >= 0 ? 4 : c.alive ? c.st : c.gone ? 5 : 3));
+    const hh = c.st === 7 ? (c.climb || 0) * 6.2 : ((c.h % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);     // on a ladder: how far up, in place of the heading
+    out.push(c.id, r(c.x), r(c.y), r(hh * 10) * 8 + (c.inside >= 0 ? 4 : c.alive ? c.st : c.gone ? 5 : 3));
   }
   return out;
 }
@@ -4945,7 +4981,7 @@ function unpackCivs(list) {
     if (!c) continue;
     const st = list[i + 3] & 7, h = (list[i + 3] >> 3) / 10;
     if (c.tx === undefined || gdist(c.x, c.y, list[i + 1], list[i + 2]) > 200) { c.x = list[i + 1]; c.y = list[i + 2]; }
-    c.tx = list[i + 1]; c.ty = list[i + 2]; c.h = h;
+    c.tx = list[i + 1]; c.ty = list[i + 2]; if (st === 7) c.climb = h / 6.2; else c.h = h;
     if ((st === 3 || st === 5) && c.alive) { c.alive = false; c.fallT = time; }
     if (st === 5) c.gone = true;
     c.inside = st === 4 ? 1 : -1;
@@ -4967,6 +5003,11 @@ function drawCiv(c, x, y) {
   const sheet = c.look === 3 ? IMG.soldier_f : IMG['civ' + c.look];   // look 3: a downed pilot
   if (!sheet) return;
   if (!c.alive) { fallen(sheet, x, y, c.h, c.fallT, c.id * 7.3); return; }
+  if (c.st === 7) {                                                    // climbing the ladder up into the helicopter
+    const up = Math.round(Math.min(1, c.climb || 0) * 30);
+    ctx.drawImage(sheet, frame8(c.h) * 32, (Math.floor(time * 6) % 2 ? 3 : 1) * 40, 32, 40, x - 16, y - 30 - up, 32, 40);
+    return;
+  }
   if (c.st === 6) {                                                    // waving for a ride, with a little flare of colour over them
     ctx.drawImage(sheet, frame8(c.h) * 32, (Math.floor(time * 3 + c.id) % 2 ? 3 : 1) * 40, 32, 40, x - 16, y - 30, 32, 40);
     if (c.id === rescues[c.res].ids[0]) { const b = Math.round(Math.sin(time * 4) * 2); ctx.fillStyle = '#fff0a0'; ctx.fillRect(x - 1, y - 44 + b, 3, 7); ctx.fillRect(x - 1, y - 35 + b, 3, 2); }
@@ -5038,12 +5079,29 @@ function setupRescues() {
 }
 const rescueLeft = (r) => r.ids.filter((id) => civs[id] && civs[id].alive && !civs[id].gone).length;
 function rescueThink(c, dt) {
-  // trapped: wave until a ride turns up, then run to it
+  // trapped: wave until a ride turns up. A helicopter drops a rope ladder and they climb it one at a time;
+  // a jeep or buggy they just run to and jump in.
   if (c.board !== undefined) {
-    const pi = c.board, pl = players[pi], h = helis[pi];
-    if (!pl.active || pl.dead || (pl.pax || 0) >= (CARRY[pl.kind] || 0) || gdist(c.x, c.y, h.x, h.y) > 260) { c.board = undefined; c.st = 6; return; }
-    c.st = 2; civStep(c, h.x, h.y, CIV_RUN * 1.2, dt);
-    if (gdist(c.x, c.y, h.x, h.y) < 28) {
+    const pi = c.board, pl = players[pi], h = helis[pi], air = veh(pi).air;
+    const gone = !pl.active || pl.dead || (pl.pax || 0) >= (CARRY[pl.kind] || 0) || gdist(c.x, c.y, h.x, h.y) > (air ? 170 : 260) || (air && Math.hypot(h.vx, h.vy) > 95);
+    if (gone) { if (pl.climber === c.id) pl.climber = undefined; c.board = undefined; c.st = 6; c.climb = 0; return; }
+    if (air) {
+      if (c.st === 7) {                                              // on the ladder
+        if ((pl.ladder || 0) < 1) { c.st = 6; c.climb = 0; pl.climber = undefined; c.board = undefined; return; }   // it went up without them: drop off
+        c.x = h.x; c.y = h.y; c.climb = (c.climb || 0) + dt / 1.1;
+        if (c.climb < 1) return;
+        pl.climber = undefined;
+      } else {
+        c.st = 2;
+        if (gdist(c.x, c.y, h.x, h.y) > 18) { civStep(c, h.x, h.y, CIV_RUN * 1.2, dt); return; }
+        if ((pl.ladder || 0) >= 1 && pl.climber === undefined) { pl.climber = c.id; c.st = 7; c.climb = 0; }
+        return;
+      }
+    } else {
+      c.st = 2; civStep(c, h.x, h.y, CIV_RUN * 1.2, dt);
+      if (gdist(c.x, c.y, h.x, h.y) >= 28) return;
+    }
+    {
       c.alive = false; c.gone = true; c.saved = true; c.st = 5;
       pl.pax = (pl.pax || 0) + 1; pl.paxPay = (pl.paxPay || 0) + RESCUE_PAY[rescues[c.res].kind];
       sayTo(pi, 'ON BOARD: ' + pl.pax + ' OF ' + CARRY[pl.kind], 1.5);
@@ -5056,6 +5114,11 @@ function rescueThink(c, dt) {
     if (!pl.active || pl.dead || !CARRY[pl.kind] || (pl.pax || 0) >= CARRY[pl.kind]) continue;
     if (gdist(c.x, c.y, h.x, h.y) < 150 && Math.hypot(h.vx, h.vy) < 70) { c.board = pi; break; }
   }
+}
+function rescueLadder(pi, dt) {                       // the rope ladder: down while someone's coming for it and you hold steady
+  const pl = players[pi], h = helis[pi];
+  const want = veh(pi).air && !pl.dead && Math.hypot(h.vx, h.vy) < 70 && civs.some((c) => c.board === pi && c.alive && !c.gone);
+  pl.ladder = want ? Math.min(1, (pl.ladder || 0) + dt / 0.5) : Math.max(0, (pl.ladder || 0) - dt / 0.4);
 }
 function updateRescues(dt) {                          // host / solo: deliveries, and passengers lost with the vehicle
   for (let pi = 0; pi < 2; pi++) {
@@ -6242,6 +6305,7 @@ function drawHeliVehicle(v, ox, oy) {
   const up = v.alt > 30, bob = up ? Math.round(Math.sin(time * 2.4 + v.id * 1.7) * 2) : 0;
   const pl = v.by >= 0 ? players[v.by] : null;
   if (pl && pl.hitFlash > 0 && Math.floor(time * 30) % 2) ctx.globalAlpha = 0.45;
+  if (pl && v.alive) drawWinch(v, pl, hx, hy, ox, oy);              // the hook (with a crate on it) or the rope ladder, under the body
   const sheet = v.sheet ? IMG[v.sheet] : !v.alive ? IMG.heli_dead : v.kind === 'scout' ? IMG.scout : (v.by === 1 ? IMG.heli2 : IMG.heli);
   ctx.drawImage(sheet, (frame % HELI.cols) * HELI.size, row * HELI.size, HELI.size, HELI.size, hx - HELI.ax, hy - HELI.ay + bob, HELI.size, HELI.size);
   if (v.alive) {
@@ -6251,6 +6315,25 @@ function drawHeliVehicle(v, ox, oy) {
   ctx.globalAlpha = 1;
 }
 
+// Cable and hook, and the rope ladder, from the helicopter's belly towards the ground under it.
+const BELLY = 34;                                  // px above the ground point to the bottom of the airframe (flying)
+function drawWinch(v, pl, hx, hy, ox, oy) {
+  const ground = Math.round(v.y) - oy - Math.round(liftAt(v.x, v.y)), top = hy - BELLY, reach = Math.max(0, ground - top);
+  const wt = role === 'guest' ? pl.winchT || 0 : pl.winch ? pl.winch.t : 0;
+  const ht = role === 'guest' ? pl.hookType || 0 : pl.winch && pl.winch.got && pickups[pl.winch.k] ? ['fuel', 'ammo', 'armor'].indexOf(pickups[pl.winch.k].type) + 1 : 0;
+  if (wt > 0.01) {
+    const end = top + Math.round(reach * wt), sway = Math.round(Math.sin(time * 3 + v.id) * 2 * wt);
+    ctx.strokeStyle = '#2a2a26'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(hx + 0.5, top); ctx.lineTo(hx + sway + 0.5, end); ctx.stroke();
+    if (ht) ctx.drawImage(IMG.pickups, (ht - 1) * 48, 0, 48, 56, hx + sway - 24, end - 24, 48, 56);   // the crate hangs off the hook
+    ctx.fillStyle = '#c8c0a8'; ctx.fillRect(hx + sway - 1, end - 1, 3, 2); ctx.fillStyle = '#e0b030'; ctx.fillRect(hx + sway - 2, end + 1, 2, 3); ctx.fillRect(hx + sway + 1, end + 2, 2, 2);   // the hook
+  }
+  const lt = pl.ladder || 0;
+  if (lt > 0.01) {
+    const end = top + Math.round(reach * lt);
+    ctx.fillStyle = '#8a6a3a'; ctx.fillRect(hx - 4, top, 1, end - top); ctx.fillRect(hx + 4, top, 1, end - top);   // two ropes
+    ctx.fillStyle = '#b08a50'; for (let y = top + 4; y < end; y += 4) ctx.fillRect(hx - 4, y, 9, 1);           // rungs
+  }
+}
 function panel(r) {
   ctx.fillStyle = 'rgba(13,15,23,0.72)'; ctx.fillRect(r[0], r[1], r[2], r[3]);
   ctx.fillStyle = 'rgba(255,255,255,0.35)';
