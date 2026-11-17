@@ -3784,31 +3784,52 @@ function updateGarrisons(dt) {
 }
 
 // --- drawing: a ring of sandbags with a coil of wire outside it, sorted in with everything else ------------------
+// The ring runs round the building as a square in grid space (a diamond on screen), cut into short segments so each
+// one sorts in depth with everything else; neighbouring segments meet, so the wall and the wire read as continuous.
+// One gap on the south-east side is the way in.
 function fortPieces(f) {
-  const n = f.large ? 22 : 14, out = [], hs = f.large ? 1.3 : 0.8, hw = hs + (f.large ? 0.45 : 0.35);
-  const shown = Math.round(n * Math.min(1, f.fort * 1.25));
+  const out = [], n = f.large ? 44 : 28, hs = f.large ? 1.3 : 0.8, hw = hs + (f.large ? 0.45 : 0.35);
+  const shown = Math.round(n * Math.min(1, f.fort * 1.25)), wire = f.fort > 0.8;
   const cx0 = f.large ? f.cx - 0.5 : f.cx, cy0 = f.large ? f.cy - 0.5 : f.cy;
-  for (let k = 0; k < n; k++) {
-    const t = k / n * 4, side = Math.floor(t), u = t - side;       // walk the square ring, starting at the south-west side
-    if (side === 1 && u > 0.4 && u < 0.6) continue;                   // a gap for the door
+  const at = (t, r) => {                                   // t in 0..4 round the square, r = half size in cells
+    const side = Math.floor(t) % 4, u = t - Math.floor(t);
     const [a, b] = [[-1 + 2 * u, 1], [1, 1 - 2 * u], [1 - 2 * u, -1], [-1, -1 + 2 * u]][side];
-    const sb = k < shown, wire = f.fort > 0.8;
-    out.push({ x: cellX(cx0 + a * hs, cy0 + b * hs), y: cellY(cx0 + a * hs, cy0 + b * hs), sb, wire: false, k });
-    if (wire) out.push({ x: cellX(cx0 + a * hw, cy0 + b * hw), y: cellY(cx0 + a * hw, cy0 + b * hw), sb: false, wire: true, k, side, u });
+    return [cellX(cx0 + a * r, cy0 + b * r), cellY(cx0 + a * r, cy0 + b * r)];
+  };
+  const door = (t) => t > 1.36 && t < 1.64;               // the gap: middle of the south-east side
+  for (let k = 0; k < n; k++) {
+    const t0 = k / n * 4, t1 = (k + 1) / n * 4;
+    if (door(t0) || door(t1)) continue;
+    if (k < shown) { const [ax, ay] = at(t0, hs), [bx, by] = at(t1, hs); out.push({ x: (ax + bx) / 2, y: (ay + by) / 2, sb: true, ax, ay, bx, by, k }); }
+    if (wire) { const [ax, ay] = at(t0, hw), [bx, by] = at(t1, hw); out.push({ x: (ax + bx) / 2, y: (ay + by) / 2, wire: true, ax, ay, bx, by, k }); }
   }
-  return out.filter((p) => p.sb || p.wire);
+  return out;
 }
 function drawFortPiece(p, x, y) {
-  if (p.sb) {                                   // two rows of bags
-    ctx.fillStyle = '#4a4030'; ctx.fillRect(x - 6, y - 1, 12, 3);
-    ctx.fillStyle = '#9a8a5e'; ctx.fillRect(x - 6, y - 4, 6, 3); ctx.fillRect(x, y - 4, 6, 3);
-    ctx.fillStyle = '#7e7048'; ctx.fillRect(x - 3, y - 7, 6, 3); ctx.fillRect(x - 6, y - 3, 1, 2); ctx.fillRect(x + 5, y - 3, 1, 2);
-    ctx.fillStyle = '#b8a878'; ctx.fillRect(x - 5, y - 4, 4, 1); ctx.fillRect(x + 1, y - 4, 4, 1); ctx.fillRect(x - 2, y - 7, 4, 1);
-  } else {                                      // a wire post and a loop of the coil
-    ctx.fillStyle = '#2c2a26'; ctx.fillRect(x, y - 7, 1, 7);
-    ctx.strokeStyle = 'rgba(70,74,78,0.95)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.ellipse(x + 0.5, y - 3.5, 4, 3, 0, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = 'rgba(150,156,160,0.9)'; ctx.fillRect(x - 3, y - 6, 1, 1); ctx.fillRect(x + 3, y - 2, 1, 1);
+  const ax = x + p.ax - p.x, ay = y + p.ay - p.y, bx = x + p.bx - p.x, by = y + p.by - p.y;
+  const len = Math.hypot(bx - ax, by - ay) || 1, ux = (bx - ax) / len, uy = (by - ay) / len;
+  if (p.sb) {                                   // two courses of bags, the top one staggered, laid along the segment
+    const steps = Math.max(1, Math.round(len / 5));
+    for (let row = 0; row < 2; row++) for (let i = 0; i <= steps; i++) {
+      const d = (i + (row ? 0.5 : 0)) * len / steps;
+      if (d > len + 0.5) continue;
+      const px = Math.round(ax + ux * d), py = Math.round(ay + uy * d) - row * 3;
+      ctx.fillStyle = '#4a4030'; ctx.fillRect(px - 3, py, 7, 2);
+      ctx.fillStyle = row ? '#9a8a5e' : '#857650'; ctx.fillRect(px - 3, py - 3, 7, 3);
+      ctx.fillStyle = '#b8a878'; ctx.fillRect(px - 2, py - 3, 4, 1);
+    }
+  } else {                                      // a coil of razor wire between posts
+    const steps = Math.max(1, Math.round(len / 3));
+    ctx.strokeStyle = 'rgba(64,68,72,0.95)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const d = i * len / steps, cx = ax + ux * d, cy = ay + uy * d - 3.5;
+      ctx.moveTo(cx + 3, cy); ctx.ellipse(cx, cy, 3, 3, 0, 0, Math.PI * 2);
+    }
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(160,166,170,0.9)';
+    for (let i = 0; i <= steps; i += 2) { const d = i * len / steps; ctx.fillRect(Math.round(ax + ux * d - 2), Math.round(ay + uy * d - 6), 1, 1); }
+    if (p.k % 3 === 0) { ctx.fillStyle = '#2c2a26'; ctx.fillRect(Math.round(ax), Math.round(ay) - 8, 1, 8); }    // a post now and then
   }
 }
 // Sandbags are cover: inside a held building they cut the damage further, and anyone standing inside the ring
