@@ -919,7 +919,7 @@ const gdist = (ax, ay, bx, by) => Math.hypot(bx - ax, (by - ay) * 2);        // 
 const gangle = (ax, ay, bx, by) => Math.atan2((by - ay) * 2, bx - ax);
 const angDiff = (a, b) => { let d = (b - a) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; return d; };
 const rand = (a, b) => a + Math.random() * (b - a);
-function sayLocal(text, secs) { message.text = text; message.until = time + (secs || 3); }
+function sayLocal(text, secs) { message.text = text; message.until = time + (secs || 3); if (typeof soundSay === 'function') soundSay(text); }
 function say(text, secs) { sayLocal(text, secs); if (role === 'host') netSend({ t: 'say', text, secs }); }       // everyone
 function sayTo(pi, text, secs) { if (pi === me) sayLocal(text, secs); else if (role === 'host') netSend({ t: 'say', text, secs }); }   // one player
 
@@ -1093,6 +1093,7 @@ function liftAt(x, y) { return groundAt(x, y).h; }
 function steepAt(x, y) { const g = groundAt(x, y); return Math.hypot(g.gx, g.gy); }
 const MAX_CLIMB = { foot: 34, tank: 28, jeep: 22 };
 function explosion(x, y, z, size, localOnly) {
+  if (typeof soundBoom === 'function') soundBoom(x, y, size);
   if (role === 'host' && !localOnly) netSend({ t: 'boom', x: Math.round(x), y: Math.round(y), z: Math.round(z), size: Math.round(size) });
   puff('flash', x, y, z, { r: size * 1.5, life: 0.10 });
   for (let k = 0; k < 5 + size / 3; k++) puff('fire', x + rand(-size, size) * 0.4, y + rand(-size, size) * 0.2, z + rand(0, size * 0.4), { vx: rand(-1, 1) * size * 1.6, vy: rand(-1, 1) * size * 0.8, vz: rand(10, 50), r: rand(0.25, 0.55) * size, life: rand(0.30, 0.65) });
@@ -1398,6 +1399,7 @@ function fire(pi, slot) {
 // (flash, trail, impact) without applying any damage.
 function addShot(s) {
   shots.push(s);
+  if (typeof soundShot === 'function') soundShot(s);
   const c = Math.cos(Math.atan2((s.y1 - s.y0) * 2, s.x1 - s.x0)), sn = Math.sin(Math.atan2((s.y1 - s.y0) * 2, s.x1 - s.x0));
   if (!s.enemy) {
     const wd = WEAPONS[s.slot];
@@ -3382,6 +3384,7 @@ function destroyNest(n, pi) {
   n.alive = false;
   if (pi >= 0) players[pi].score += 2000;
   explosion(n.x, n.y, 10, 52);
+  if (typeof sfx === 'function') sfx('squelch', n.x, n.y);
   for (let k = 0; k < 30; k++) puff('spark', n.x, n.y, 8, { vx: rand(-90, 90), vy: rand(-45, 45), vz: rand(60, 200), life: rand(0.5, 1.2), c: '#9ab040' });
   say('ZOMBIE NEST DESTROYED. ' + nests.filter((m) => m.alive).length + ' LEFT', 5);
   if (role === 'host') netSend({ t: 'nestx', k: nests.indexOf(n) });
@@ -4285,6 +4288,268 @@ function towerRoof() {
 }
 
 // ---------------------------------------------------------------------------
+// Sound: every effect and the music are made by code with the Web Audio API (no sound files). Punchy and gritty:
+// filtered noise for gunfire, wind and blasts, falling sine thumps for weight, detuned saws for engines and music.
+//  - Effects are placed in the world: quieter and duller with distance from the camera, panned left/right.
+//  - Hooks: addShot (firing), explosion (blasts), sayLocal (pickups, alarms, victory), and a per-frame tick for
+//    the rotor / engine loop, being hit, lock-on, low fuel and zombie groans.
+//  - Music: a step sequencer (D minor, 104 bpm). Title: slow and dark. Battle: drums and bass that build up while
+//    there is fighting near you.
+//  - Browsers only start sound after a tap or key press; the first one unlocks it. SOUND / MUSIC toggles in the menu.
+// ---------------------------------------------------------------------------
+const SND = { ctx: null, master: null, sfx: null, music: null, noise: null, brown: null, voices: 0, last: {}, on: true, musicOn: true, loops: {}, prev: {} };
+SND.on = lsGet('strike.v1.sound') !== false;
+SND.musicOn = lsGet('strike.v1.music') !== false;
+function audioUnlock() {
+  if (!SND.ctx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const c = SND.ctx = new AC();
+    SND.master = c.createGain(); SND.master.gain.value = SND.on ? 0.9 : 0;
+    const comp = c.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 5; comp.attack.value = 0.003; comp.release.value = 0.25;
+    SND.master.connect(comp); comp.connect(c.destination);
+    SND.sfx = c.createGain(); SND.sfx.gain.value = 0.85; SND.sfx.connect(SND.master);
+    SND.music = c.createGain(); SND.music.gain.value = SND.musicOn ? 0.32 : 0; SND.music.connect(SND.master);
+    const len = c.sampleRate * 2;
+    SND.noise = c.createBuffer(1, len, c.sampleRate);
+    SND.brown = c.createBuffer(1, len, c.sampleRate);
+    const w = SND.noise.getChannelData(0), b = SND.brown.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i++) { w[i] = Math.random() * 2 - 1; last = (last + 0.02 * w[i]) / 1.02; b[i] = last * 3.5; }
+    musicStart();
+  }
+  if (SND.ctx.state === 'suspended') SND.ctx.resume();
+}
+for (const ev of ['pointerdown', 'touchend', 'keydown']) addEventListener(ev, audioUnlock, { passive: true });
+function setSound(on) { SND.on = on; lsSet('strike.v1.sound', on); if (SND.master) SND.master.gain.setTargetAtTime(on ? 0.9 : 0, SND.ctx.currentTime, 0.05); }
+function setMusic(on) { SND.musicOn = on; lsSet('strike.v1.music', on); if (SND.music) SND.music.gain.setTargetAtTime(on ? 0.32 : 0, SND.ctx.currentTime, 0.2); }
+const audioReady = () => SND.ctx && SND.ctx.state === 'running' && SND.on;
+
+// --- building blocks ------------------------------------------------------------------------------------------------
+// Where a sound sits: gain (falls off with distance), pan, and how muffled it is.
+function placeAt(x, y) {
+  if (x === undefined) return { g: 1, pan: 0, lp: 18000 };
+  const dx = x - cam.x, dy = (y - cam.y) * 1.6, d = Math.hypot(dx, dy);
+  return { g: Math.max(0, 1 / (1 + d / 380)) * (d > 2600 ? 0 : 1), pan: Math.max(-0.9, Math.min(0.9, dx / 500)), lp: Math.max(900, 16000 / (1 + d / 260)) };
+}
+// One voice: source -> filter -> gain envelope -> pan -> sfx bus. Returns the nodes so callers can shape them.
+function voice(src, p, filterType, freq, q) {
+  const c = SND.ctx, f = c.createBiquadFilter(), g = c.createGain(), lp = c.createBiquadFilter(), pan = c.createStereoPanner ? c.createStereoPanner() : null;
+  f.type = filterType || 'lowpass'; f.frequency.value = freq || 2000; f.Q.value = q || 0.7;
+  lp.type = 'lowpass'; lp.frequency.value = p.lp;
+  src.connect(f); f.connect(lp); lp.connect(g);
+  if (pan) { pan.pan.value = p.pan; g.connect(pan); pan.connect(SND.sfx); } else g.connect(SND.sfx);
+  SND.voices++;
+  src.onended = () => { SND.voices--; try { g.disconnect(); } catch (err) { /* gone */ } };
+  return { f, g };
+}
+const noiseSrc = (brown) => { const s = SND.ctx.createBufferSource(); s.buffer = brown ? SND.brown : SND.noise; s.loop = true; s.loopStart = Math.random(); return s; };
+function env(g, t, peak, attack, decay) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay); }
+function ok(name, gap) {                                // keep a busy fight from turning into mush
+  if (!audioReady() || SND.voices > 40) return false;
+  const now = SND.ctx.currentTime;
+  if (SND.last[name] && now - SND.last[name] < gap) return false;
+  SND.last[name] = now; return true;
+}
+function burst(p, { type = 'bandpass', freq = 1800, q = 1, peak = 0.5, attack = 0.002, decay = 0.08, brown = false, sweepTo = 0 }) {
+  const c = SND.ctx, t = c.currentTime, s = noiseSrc(brown), v = voice(s, p, type, freq, q);
+  if (sweepTo) v.f.frequency.exponentialRampToValueAtTime(sweepTo, t + attack + decay);
+  env(v.g, t, peak * p.g, attack, decay);
+  s.start(t, Math.random()); s.stop(t + attack + decay + 0.05);
+}
+function thump(p, { from = 120, to = 40, peak = 0.7, decay = 0.25, type = 'sine' }) {
+  const c = SND.ctx, t = c.currentTime, o = c.createOscillator(), v = voice(o, p, 'lowpass', 800);
+  o.type = type; o.frequency.setValueAtTime(from, t); o.frequency.exponentialRampToValueAtTime(to, t + decay);
+  env(v.g, t, peak * p.g, 0.004, decay);
+  o.start(t); o.stop(t + decay + 0.05);
+}
+function tone(p, { freq = 880, type = 'square', peak = 0.15, decay = 0.08, at = 0, slideTo = 0 }) {
+  const c = SND.ctx, t = c.currentTime + at, o = c.createOscillator(), v = voice(o, p, 'lowpass', 6000);
+  o.type = type; o.frequency.setValueAtTime(freq, t); if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + decay);
+  env(v.g, t, peak * p.g, 0.003, decay);
+  o.start(t); o.stop(t + decay + 0.05);
+}
+
+// --- the effects ------------------------------------------------------------------------------------------------------
+const SFX = {
+  gun(p) { burst(p, { freq: 1500, q: 0.8, peak: 0.55, decay: 0.06 }); thump(p, { from: 180, to: 70, peak: 0.25, decay: 0.05 }); },
+  mg(p) { burst(p, { freq: 2100, q: 1, peak: 0.4, decay: 0.05 }); },
+  rifle(p) { burst(p, { freq: 2600, q: 1.2, peak: 0.35, decay: 0.05 }); tone(p, { freq: 1900, type: 'square', peak: 0.04, decay: 0.02 }); },
+  sniper(p) { burst(p, { type: 'highpass', freq: 1400, peak: 0.8, decay: 0.12 }); burst(p, { freq: 500, peak: 0.25, decay: 0.5, brown: true }); },
+  rocket(p) { burst(p, { freq: 400, q: 2, peak: 0.6, attack: 0.02, decay: 0.45, sweepTo: 2400 }); thump(p, { from: 160, to: 60, peak: 0.3, decay: 0.12 }); },
+  missile(p) { burst(p, { freq: 300, q: 2.5, peak: 0.7, attack: 0.05, decay: 0.8, sweepTo: 1800 }); thump(p, { from: 110, to: 45, peak: 0.4, decay: 0.2 }); },
+  cannon(p) { thump(p, { from: 140, to: 32, peak: 1, decay: 0.45 }); burst(p, { type: 'lowpass', freq: 1400, peak: 0.7, decay: 0.3, brown: true, sweepTo: 300 }); },
+  lob(p) { thump(p, { from: 240, to: 90, peak: 0.45, decay: 0.12 }); burst(p, { freq: 800, peak: 0.2, decay: 0.08 }); },
+  flame(p) { burst(p, { freq: 700, q: 0.6, peak: 0.28, attack: 0.02, decay: 0.16, brown: true }); },
+  flak(p) { burst(p, { freq: 900, peak: 0.45, decay: 0.12 }); thump(p, { from: 200, to: 80, peak: 0.25, decay: 0.08 }); },
+  boom(p, size) {
+    const k = Math.min(1.6, size / 30);
+    thump(p, { from: 90 + 40 * k, to: 28, peak: 0.6 + 0.4 * k, decay: 0.35 + 0.5 * k });
+    burst(p, { type: 'lowpass', freq: 1800 + 1200 * k, peak: 0.6 + 0.4 * k, attack: 0.005, decay: 0.5 + 0.9 * k, brown: true, sweepTo: 120 });
+    burst(p, { freq: 3000, q: 0.5, peak: 0.25 * k, decay: 0.08 });
+  },
+  hit(p) { tone(p, { freq: 1150, peak: 0.12, decay: 0.07 }); tone(p, { freq: 1730, peak: 0.08, decay: 0.09, at: 0.01 }); burst(p, { freq: 3500, peak: 0.2, decay: 0.04 }); },
+  pickup() { const p = placeAt(); [660, 880, 1320].forEach((f, k) => tone(p, { freq: f, type: 'triangle', peak: 0.22, decay: 0.12, at: k * 0.07 })); },
+  ding() { const p = placeAt(); tone(p, { freq: 1046, type: 'sine', peak: 0.25, decay: 0.4 }); tone(p, { freq: 1568, type: 'sine', peak: 0.12, decay: 0.5, at: 0.05 }); },
+  buzz() { const p = placeAt(); tone(p, { freq: 140, type: 'sawtooth', peak: 0.18, decay: 0.25 }); },
+  alarm() { const p = placeAt(); for (let k = 0; k < 3; k++) { tone(p, { freq: 740, type: 'square', peak: 0.1, decay: 0.16, at: k * 0.36 }); tone(p, { freq: 520, type: 'square', peak: 0.1, decay: 0.16, at: k * 0.36 + 0.18 }); } },
+  lock() { const p = placeAt(); tone(p, { freq: 1400, type: 'sine', peak: 0.08, decay: 0.05 }); tone(p, { freq: 1800, type: 'sine', peak: 0.08, decay: 0.06, at: 0.06 }); },
+  warn() { const p = placeAt(); tone(p, { freq: 980, type: 'square', peak: 0.07, decay: 0.09 }); },
+  win() { const p = placeAt(); [523, 659, 784, 1046].forEach((f, k) => { tone(p, { freq: f, type: 'sawtooth', peak: 0.12, decay: 0.35, at: k * 0.16 }); tone(p, { freq: f / 2, type: 'triangle', peak: 0.15, decay: 0.4, at: k * 0.16 }); }); },
+  groan(p) {
+    const c = SND.ctx, t = c.currentTime, o = c.createOscillator(), lfo = c.createOscillator(), lg = c.createGain(), v = voice(o, p, 'bandpass', 520, 3);
+    const f0 = 85 + Math.random() * 50, d = 0.7 + Math.random() * 0.6;
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(f0 * 1.15, t); o.frequency.linearRampToValueAtTime(f0 * 0.8, t + d);
+    lfo.frequency.value = 6 + Math.random() * 4; lg.gain.value = 8; lfo.connect(lg); lg.connect(o.frequency);
+    v.g.gain.setValueAtTime(0.0001, t); v.g.gain.linearRampToValueAtTime(0.32 * p.g, t + 0.15); v.g.gain.linearRampToValueAtTime(0.0001, t + d);
+    o.start(t); lfo.start(t); o.stop(t + d + 0.05); lfo.stop(t + d + 0.05);
+  },
+  squelch(p) { burst(p, { freq: 300, q: 4, peak: 0.6, decay: 0.6, brown: true, sweepTo: 90 }); thump(p, { from: 70, to: 30, peak: 0.6, decay: 0.5 }); },
+  thud(p) { thump(p, { from: 90, to: 50, peak: 0.35, decay: 0.12 }); },
+  click() { const p = placeAt(); tone(p, { freq: 2200, type: 'square', peak: 0.04, decay: 0.02 }); },
+};
+function sfx(name, x, y, arg) {
+  if (!audioReady() || !SFX[name]) return;
+  const p = placeAt(x, y);
+  if (p.g < 0.03) return;
+  SFX[name](p, arg);
+}
+
+// --- hooks ------------------------------------------------------------------------------------------------------------
+const SHOT_SOUND = { 0: 'gun', 1: 'rocket', 2: 'missile', 3: 'rocket', 4: 'mg', 5: 'cannon', 6: 'rifle', 7: 'lob', 8: 'lob', 9: 'rocket', 10: 'flame', 11: 'sniper' };
+const ENEMY_SOUND = { inf: 'rifle', gren: 'lob', rocket: 'rocket', flame: 'flame', sniper: 'sniper', tank: 'cannon', aa: 'flak', gunship: 'gun' };
+function soundShot(s) {
+  const name = s.enemy ? ENEMY_SOUND[s.kind] : SHOT_SOUND[s.slot];
+  if (!name) return;
+  if (ok(name + (s.enemy ? 'e' : 'p'), name === 'gun' || name === 'mg' ? 0.045 : name === 'flame' ? 0.09 : name === 'rifle' ? 0.06 : 0.03)) sfx(name, s.x0, s.y0);
+}
+function soundBoom(x, y, size) { if (ok('boom', size > 30 ? 0.05 : 0.07)) sfx('boom', x, y, size); }
+function soundSay(text) {
+  if (!audioReady()) return;
+  if (/PICKED UP|RESTOCKED|REPAIRED|PATCHED UP/.test(text)) SFX.pickup();
+  else if (/UNDER ATTACK|INBOUND|ZOMBIES AT|OVERRAN|OVERRUN/.test(text)) { if (ok('alarm', 6)) SFX.alarm(); }
+  else if (/MAP CLEARED/.test(text)) SFX.win();
+  else if (/BUILT|READY|PARKED|^KIT:|^TOWER:|GAVE|GIVEN|CLOUD SAVE SWITCHED|LINKED|JOINED/.test(text)) SFX.ding();
+  else if (/NOT ENOUGH|NO ROOM|CANNOT|EVERY TOWER|NO RIFLEMAN/.test(text)) SFX.buzz();
+  else if (/NEST DESTROYED/.test(text)) { /* the squelch plays from destroyNest */ }
+}
+// Rotor or engine for whatever you are in, and the per-frame cues.
+function loopNode(name, build) {
+  if (!SND.loops[name]) SND.loops[name] = build();
+  return SND.loops[name];
+}
+function rotorLoop() {
+  const c = SND.ctx, s = noiseSrc(true), f = c.createBiquadFilter(), g = c.createGain(), lfo = c.createOscillator(), lg = c.createGain(), out = c.createGain();
+  const whine = c.createOscillator(), wg = c.createGain();
+  f.type = 'lowpass'; f.frequency.value = 420; g.gain.value = 0.5; lfo.type = 'sawtooth'; lfo.frequency.value = 11; lg.gain.value = 0.5;
+  lfo.connect(lg); lg.connect(g.gain);
+  s.connect(f); f.connect(g); g.connect(out);
+  whine.type = 'triangle'; whine.frequency.value = 1240; wg.gain.value = 0.012; whine.connect(wg); wg.connect(out);
+  out.gain.value = 0; out.connect(SND.sfx);
+  s.start(); lfo.start(); whine.start();
+  return { out, lfo, whine, f };
+}
+function engineLoop() {
+  const c = SND.ctx, o = c.createOscillator(), o2 = c.createOscillator(), f = c.createBiquadFilter(), out = c.createGain(), n = noiseSrc(true), nf = c.createBiquadFilter(), ng = c.createGain();
+  o.type = 'sawtooth'; o2.type = 'sawtooth'; o2.detune.value = 18; f.type = 'lowpass'; f.frequency.value = 260;
+  o.connect(f); o2.connect(f); f.connect(out);
+  nf.type = 'lowpass'; nf.frequency.value = 300; ng.gain.value = 0.6; n.connect(nf); nf.connect(ng); ng.connect(out);
+  out.gain.value = 0; out.connect(SND.sfx);
+  o.start(); o2.start(); n.start();
+  return { out, o, o2, f };
+}
+function soundTick(dt) {
+  if (!audioReady()) { for (const k in SND.loops) SND.loops[k].out.gain.value = 0; return; }
+  const c = SND.ctx, t = c.currentTime, pl = player, kind = pl.kind, quiet = titleOpen || paused() || pl.dead > 0;
+  const sp = Math.hypot(heli.vx, heli.vy), v = VEH[kind];
+  const rotor = loopNode('rotor', rotorLoop), eng = loopNode('engine', engineLoop);
+  const air = !quiet && v.air, ground = !quiet && (kind === 'tank' || kind === 'jeep');
+  rotor.out.gain.setTargetAtTime(air ? 0.32 + 0.12 * Math.min(1, sp / v.speed) : 0, t, 0.15);
+  rotor.lfo.frequency.setTargetAtTime((kind === 'scout' ? 13.5 : 11) + 3 * Math.min(1, sp / v.speed), t, 0.3);
+  rotor.whine.frequency.setTargetAtTime(1150 + 260 * Math.min(1, sp / v.speed), t, 0.3);
+  const base = kind === 'tank' ? 38 : 72, rev = Math.min(1, sp / (v.speed || 1));
+  eng.out.gain.setTargetAtTime(ground ? (kind === 'tank' ? 0.13 : 0.09) + 0.06 * rev : 0, t, 0.2);
+  eng.o.frequency.setTargetAtTime(base * (1 + rev * 0.8), t, 0.25); eng.o2.frequency.setTargetAtTime(base * (1 + rev * 0.8), t, 0.25);
+  eng.f.frequency.setTargetAtTime(220 + 500 * rev, t, 0.25);
+  if (quiet) return;
+  // hit: armour went down
+  if (SND.prev.armor !== undefined && pl.armor < SND.prev.armor - 0.5 && pl.kind === SND.prev.kind && ok('hit', 0.09)) sfx(kind === 'foot' ? 'thud' : 'hit');
+  SND.prev.armor = pl.armor; SND.prev.kind = pl.kind;
+  // a new lock
+  const lk = pl.lock && pl.lock.ref;
+  if (lk && lk !== SND.prev.lock && ok('lock', 0.4)) SFX.lock();
+  SND.prev.lock = lk;
+  // low fuel / armour warning
+  const af = pl.armor / v.armor, ff = v.fuel ? pl.fuel / PLAYER_MAX.fuel : 1;
+  if ((af < 0.25 || ff < 0.2) && ok('warn', 1)) SFX.warn();
+  // zombies nearby groan now and then
+  if (typeof zombiesOn === 'function' && zombiesOn() && Math.random() < dt * 1.2) {
+    let z = null, bd = 520;
+    for (const e of enemies) if (e.alive && e.type === 'zombie') { const d = gdist(e.x, e.y, heli.x, heli.y); if (d < bd) { bd = d; z = e; } }
+    if (z && ok('groan', 1.2)) sfx('groan', z.x, z.y);
+  }
+}
+
+// --- music ------------------------------------------------------------------------------------------------------------
+// D minor, 104 bpm, 16 steps a bar, four-bar progression Dm - Bb - C - Am. Battle intensity (0..1) follows the fighting.
+const MUS = { step: 0, next: 0, timer: 0, heat: 0, bar: 0 };
+const CHORDS = [[38, 41, 45], [34, 38, 41], [36, 40, 43], [33, 36, 40]];   // MIDI roots of each bar's chord (low)
+const midi = (n) => 440 * Math.pow(2, (n - 69) / 12);
+function musicStart() {
+  if (MUS.timer) return;
+  MUS.next = SND.ctx.currentTime + 0.1;
+  MUS.timer = setInterval(musicSchedule, 25);
+}
+function musicHeat() {                                  // how much is going on around you
+  if (titleOpen || !world) return 0;
+  let n = 0;
+  for (const e of enemies) if (e.alive && e.engaged && !(e.side >= 0) && gdist(e.x, e.y, heli.x, heli.y) < 900) n++;
+  return Math.min(1, n / 6);
+}
+function musicSchedule() {
+  if (!SND.ctx || SND.ctx.state !== 'running') return;
+  const spb = 60 / 104 / 4, c = SND.ctx;
+  MUS.heat += (musicHeat() - MUS.heat) * 0.02;
+  while (MUS.next < c.currentTime + 0.12) {
+    playStep(MUS.step, MUS.next, spb);
+    MUS.next += spb; MUS.step = (MUS.step + 1) % 64;
+  }
+}
+function mnote(t, freq, dur, { type = 'sawtooth', peak = 0.2, cutoff = 900, detune = 0, attack = 0.01 } = {}) {
+  const c = SND.ctx, o = c.createOscillator(), f = c.createBiquadFilter(), g = c.createGain();
+  o.type = type; o.frequency.value = freq; o.detune.value = detune; f.type = 'lowpass'; f.frequency.value = cutoff;
+  o.connect(f); f.connect(g); g.connect(SND.music);
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.start(t); o.stop(t + dur + 0.05);
+}
+function mnoise(t, dur, type, freq, peak, brown) {
+  const c = SND.ctx, s = noiseSrc(brown), f = c.createBiquadFilter(), g = c.createGain();
+  f.type = type; f.frequency.value = freq; s.connect(f); f.connect(g); g.connect(SND.music);
+  g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.start(t, Math.random()); s.stop(t + dur + 0.05);
+}
+function kick(t, peak) { const c = SND.ctx, o = c.createOscillator(), g = c.createGain(); o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.18); g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3); o.connect(g); g.connect(SND.music); o.start(t); o.stop(t + 0.32); }
+function playStep(step, t, spb) {
+  const bar = (step / 16) | 0, s = step % 16, ch = CHORDS[bar], title = titleOpen, heat = title ? 0 : MUS.heat;
+  // pad: the chord, every bar, long and dark
+  if (s === 0) for (const n of ch) { mnote(t, midi(n + 12), spb * 16, { peak: 0.05, cutoff: 700 + heat * 600, detune: -8, attack: 0.4 }); mnote(t, midi(n + 12), spb * 16, { peak: 0.05, cutoff: 700, detune: 9, attack: 0.4 }); }
+  if (title) {                                          // title: a slow pulse and a lonely bell
+    if (s === 0 || s === 10) kick(t, 0.5);
+    if (s === 0 && bar % 2 === 0) mnote(t, midi(ch[0] + 36), 1.6, { type: 'sine', peak: 0.06, cutoff: 4000 });
+    if (s === 8) mnote(t, midi(ch[0]), spb * 6, { peak: 0.16, cutoff: 300 });
+    return;
+  }
+  // bass: driving eighths on the root, with an octave jump
+  if (s % 2 === 0) mnote(t, midi(ch[0] + (s % 8 === 6 ? 12 : 0)), spb * 1.8, { peak: 0.16 + heat * 0.06, cutoff: 380 + heat * 400 });
+  // drums
+  if (s === 0 || s === 8 || (s === 10 && heat > 0.3) || (s === 14 && heat > 0.7)) kick(t, 0.75);
+  if (s === 4 || s === 12) { mnoise(t, 0.18, 'bandpass', 1800, 0.35); mnote(t, 190, 0.1, { type: 'triangle', peak: 0.15, cutoff: 2000 }); }
+  if (s % 2 === 0 || heat > 0.5) mnoise(t, 0.04, 'highpass', 7000, s % 4 === 2 ? 0.12 : 0.06);
+  // lead: a minor arpeggio when the fighting heats up
+  if (heat > 0.35 && s % 3 === 0) { const arp = [ch[0], ch[1], ch[2], ch[1] + 12][(s / 3) % 4]; mnote(t, midi(arp + 24), spb * 2.5, { type: 'square', peak: 0.04 * heat, cutoff: 2400 }); }
+}
+
+// ---------------------------------------------------------------------------
 // Strike - Milestone 1: seeded open world + flyable helicopter.
 // The world renders at a fixed low resolution (540 px tall) and is scaled up by whole
 // numbers, so every game pixel stays a crisp square. Tiles are 64x32 isometric diamonds.
@@ -5025,6 +5290,7 @@ function frame(now) {
   if ((mapOpen || paused()) && role === 'solo') acc = 0;   // paused while the map or a menu is up (never in a shared game)
   while (acc >= STEP) { step(STEP); time += STEP; acc -= STEP; }
   draw(dt);
+  try { soundTick(dt); } catch (err) { /* sound must never stop the game */ }
   requestAnimationFrame(frame);
 }
 
@@ -5068,6 +5334,7 @@ function openMenu() {
     '<button id="m-resume">RESUME</button><button id="m-maps">CAMPAIGN MAPS</button>' +
     '<button id="m-multi">' + (role === 'solo' ? 'PLAY TOGETHER' : NET.connected ? 'TWO PLAYERS: LINKED' : 'TWO PLAYERS: NO LINK') + '</button>' +
     '<button id="m-ctl">CONTROLS: ' + controlMode + '</button>' +
+    '<button id="m-snd">SOUND: ' + (SND.on ? 'ON' : 'OFF') + '</button><button id="m-mus">MUSIC: ' + (SND.musicOn ? 'ON' : 'OFF') + '</button>' +
     '<button id="m-free">FREE PLAY</button><button id="m-place">REAL PLACE</button><button id="m-cloud">CLOUD SAVE: ' + (cloudCfg() ? 'ON' : 'OFF') + '</button>' +
     (role === 'solo' ? '<button id="m-title">TITLE SCREEN</button>' : '') +
     '<p class="fine">' + (campaign ? 'The battle saves as you play.' : 'Free play and real places are not saved.') + (role === 'solo' ? ' The game is paused.' : ' Two-player games keep running.') + '</p>';
@@ -5077,6 +5344,8 @@ function openMenu() {
   $('m-maps').onclick = go(() => openMaps());
   $('m-multi').onclick = go(() => openMulti());
   $('m-ctl').onclick = () => { toggleMode(); $('m-ctl').textContent = 'CONTROLS: ' + controlMode; };
+  $('m-snd').onclick = () => { audioUnlock(); setSound(!SND.on); $('m-snd').textContent = 'SOUND: ' + (SND.on ? 'ON' : 'OFF'); };
+  $('m-mus').onclick = () => { audioUnlock(); setMusic(!SND.musicOn); $('m-mus').textContent = 'MUSIC: ' + (SND.musicOn ? 'ON' : 'OFF'); };
   $('m-free').onclick = go(() => { if (role === 'guest') sayLocal('ONLY THE HOST CAN CHANGE THE MAP'); else startFreePlay(); });
   $('m-place').onclick = go(() => openPlace());
   $('m-cloud').onclick = go(() => { openMaps(); cloudScreen(); });
