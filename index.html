@@ -1886,8 +1886,7 @@ function drawCombatHud() {
   const units = myUnits(me).length;
   if (units) {                                            // orders for all your units: tap to change
     const r = ordersRect(); panel(r);
-    const label = (MOBILE ? '' : 'R ') + units + ' UNITS: ' + (player.order || 'FOLLOW');
-    text(label, r[0] + 4, r[1] + 4, player.order === 'ATTACK' ? 'yellow' : 'cyan');
+    text(ordersLabel(), r[0] + 5, r[1] + 3, player.order === 'ATTACK' ? 'yellow' : 'cyan');
   }
   for (let s = 0; s < 3; s++) {
     const w = weaponOf(me, s);
@@ -1915,18 +1914,22 @@ function drawCombatHud() {
   for (const e of enemies) if (e.alive && (e.type === 'tank' || e.type === 'gunship') && (e.field || e.wave || e.base < 0)) dot(mapX(e.x, e.y), mapY(e.x, e.y), '#f09050', 0);
   if (players[1 - me].active) dot(mapX(helis[1 - me].x, helis[1 - me].y), mapY(helis[1 - me].x, helis[1 - me].y), '#60e0e8', 1);
   if (blinkOn) dot(hmx, hmy, '#ffffff', 1);
-  // arrow at the screen edge toward the nearest enemy base still standing
-  if (nearest && !player.dead) {
-    const dx = cellX(nearest.x + 6, nearest.y + 6) - heli.x, dy = cellY(nearest.x + 6, nearest.y + 6) - heli.y;
-    if (Math.abs(dx) > W * 0.42 || Math.abs(dy) > H * 0.40) {
-      const a = Math.atan2(dy, dx), ax = UW / 2 + Math.cos(a) * (UW / 2 - 26), ay = UH / 2 - 8 + Math.sin(a) * (UH / 2 - 44);
-      ctx.save(); ctx.translate(Math.round(ax), Math.round(ay)); ctx.rotate(a);
-      ctx.fillStyle = '#14100c'; ctx.beginPath(); ctx.moveTo(9, 0); ctx.lineTo(-6, -7); ctx.lineTo(-6, 7); ctx.fill();
-      ctx.fillStyle = '#f04838'; ctx.beginPath(); ctx.moveTo(7, 0); ctx.lineTo(-5, -5); ctx.lineTo(-5, 5); ctx.fill();
-      ctx.restore();
-      const label = 'BASE ' + Math.round(nearestD);
-      text(label, Math.round(Math.min(UW - label.length * FONT_W - 4, Math.max(4, ax - label.length * FONT_W / 2))), Math.round(ay + (Math.sin(a) > 0.5 ? -20 : 10)), 'yellow');
-    }
+  // arrows at the screen edge toward the nearest enemy base still standing (red) and the nearest zombie nest (green)
+  const edgeArrow = (cx, cy, color, label) => {
+    const dx = cellX(cx, cy) - heli.x, dy = cellY(cx, cy) - heli.y;
+    if (Math.abs(dx) <= W * 0.42 && Math.abs(dy) <= H * 0.40) return;
+    const a = Math.atan2(dy, dx), ax = UW / 2 + Math.cos(a) * (UW / 2 - 26), ay = UH / 2 - 8 + Math.sin(a) * (UH / 2 - 44);
+    ctx.save(); ctx.translate(Math.round(ax), Math.round(ay)); ctx.rotate(a);
+    ctx.fillStyle = '#14100c'; ctx.beginPath(); ctx.moveTo(9, 0); ctx.lineTo(-6, -7); ctx.lineTo(-6, 7); ctx.fill();
+    ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(7, 0); ctx.lineTo(-5, -5); ctx.lineTo(-5, 5); ctx.fill();
+    ctx.restore();
+    text(label, Math.round(Math.min(UW - label.length * FONT_W - 4, Math.max(4, ax - label.length * FONT_W / 2))), Math.round(ay + (Math.sin(a) > 0.5 ? -20 : 10)), color === '#f04838' ? 'yellow' : 'white');
+  };
+  if (!player.dead) {
+    if (nearest) edgeArrow(nearest.x + 6, nearest.y + 6, '#f04838', 'BASE ' + Math.round(nearestD));
+    let nn = null, nd = 1e9;
+    if (typeof nests !== 'undefined') for (const n of nests) { if (!n.alive) continue; const d = Math.hypot(n.cx - hmx, n.cy - hmy); if (d < nd) { nd = d; nn = n; } }
+    if (nn) edgeArrow(nn.cx, nn.cy, '#a8d040', 'NEST ' + Math.round(nd));
   }
 
   // second player: status line, and an arrow to them when they are off screen
@@ -4446,7 +4449,8 @@ const mapRect = () => [UW - 62, 3, 28, 24];
 const zoomRect = () => [UW - 93, 3, 28, 24];
 const miniRect = () => [3, 31, 128, 64];
 const interactRect = () => [Math.round(UW / 2 - 66), UH - 30, 132, 20];
-const ordersRect = () => [3, 110, 104, 15];
+const ordersLabel = () => (MOBILE ? '' : 'R ') + myUnits(me).length + ' UNITS: ' + (player.order || 'FOLLOW');
+const ordersRect = () => [3, 112, ordersLabel().length * FONT_W + 10, FONT_H + 6];
 const baseRect = () => [UW - 124, 3, 28, 24];
 const inRect = (r, x, y) => x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3];
 
