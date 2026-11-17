@@ -85,6 +85,11 @@
   #menu-body > p { margin: 2px 0 6px; }
   #menu-body > p.fine { margin-top: 6px; }
   #menu.base .box { text-align: left; } #menu.base #menu-body > p { margin: 0; }
+  #menu p.mode { margin: 0 0 8px !important; color: var(--dim); font-size: 11px; letter-spacing: 2px; text-align: left; }
+  #menu div.obj { display: flex; flex-direction: column; gap: 1px; margin: 0 0 8px; background: var(--line); border: 1px solid var(--line); }
+  #menu div.obj > div { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--panel2); text-align: left; font-size: 12px; letter-spacing: 1px; }
+  #menu div.obj i { width: 14px; font-style: normal; text-align: center; font-size: 13px; }
+  #menu div.obj span { flex: 1; } #menu div.obj b { color: var(--yellow); font-weight: normal; }
   #menu ul.obj { margin: 4px 0 8px; padding: 10px 12px 10px 28px; text-align: left; font-size: 12px; line-height: 1.5; background: var(--panel2); border: 1px solid var(--line); }
   #menu ul.obj li { margin: 3px 0; }
   #menu ul.obj li::marker { color: var(--yellow); }
@@ -2755,7 +2760,7 @@ function mpScreen(name) {
     body.innerHTML = '<p>Linked. You are player ' + (me + 1) + '.</p><button id="mp-drop">DISCONNECT</button>';
     $('mp-drop').onclick = () => { mpDisconnect(); mpScreen('start'); };
   } else if (name === 'start') {
-    body.innerHTML = '<p>Both devices open this same game (from the file or your web address), then one hosts and the other joins. You swap two codes, any way you like.</p>' + where +
+    body.innerHTML = '<p class="fine">One device hosts, the other joins. Swap the two codes.</p>' + where +
       '<div class="row"><button id="mp-host">HOST A GAME</button><button id="mp-join">JOIN A GAME</button></div><p id="mp-error" class="err"></p>';
     const stun = () => { NET.useStun = document.querySelector('input[name=mp-where]:checked').value === 'net'; return NET.useStun; };
     $('mp-host').onclick = async () => {
@@ -3027,7 +3032,7 @@ function closePlace() { $('place').hidden = true; grabFocus(); }
 function placeScreen() {
   const body = $('place-body');
   if (role === 'guest') { body.innerHTML = '<p>Only the host can pick the place. Ask player 1 to choose one.</p>'; return; }
-  body.innerHTML = '<p>Type a town, base, airport, landmark or address, or coordinates as <i>lat, lon</i>. Needs an internet connection; does not work on the Claude-hosted page.</p>' +
+  body.innerHTML = '<p class="fine">A town, landmark, address, or <i>lat, lon</i>. Needs internet.</p>' +
     '<div class="row"><input id="place-q" type="text" placeholder="e.g. Key West, Florida" autocomplete="off"><button id="place-find">FIND</button></div>' +
     '<div id="place-results"></div>' +
     '<div class="row"><label>AREA <select id="place-km"><option value="2">2 km (most detail)</option><option value="3.5" selected>3.5 km</option><option value="5">5 km</option><option value="8">8 km (blocks merge)</option></select></label>' +
@@ -3694,14 +3699,14 @@ function mapsScreen(why) {
     const tag = won ? 'CLEARED' : !open ? 'LOCKED' : pct ? pct + '%' : 'NEW';
     return '<button class="map' + (open ? '' : ' locked') + (cur ? ' cur' : '') + '" data-id="' + m.id + '"' + (open ? '' : ' disabled') + '><span class="n">' + m.id + '</span><b>' + m.name + '</b><span class="tag">' + tag + '</span><br><span class="brief">' + (open ? m.brief : '') + '</span></button>';
   }).join('');
-  const head = '<p class="fine">CAMPAIGN: ' + crewLabel(currentCrew()) + (myName() ? '' : ' · set your name on the title screen (WHO\'S PLAYING)') + '</p>' + (why === 'won' ? '<p class="win">MAP CLEARED. ' + (campaign && campaign.id < MAPS.length ? 'Map ' + (campaign.id + 1) + ' is unlocked.' : 'That was the last one. You won the campaign.') + '</p>' : '');
+  const head = '<p class="fine">CAMPAIGN: ' + crewLabel(currentCrew()) + (myName() ? '' : ' · SET YOUR NAME: WHO\'S PLAYING') + '</p>' + (why === 'won' ? '<p class="win">MAP CLEARED. ' + (campaign && campaign.id < MAPS.length ? 'Map ' + (campaign.id + 1) + ' is unlocked.' : 'That was the last one. You won the campaign.') + '</p>' : '');
   const c = cloudCfg();
   const pref = modePref();
   const modes = '<div class="row modes"><span class="lbl">ENEMY</span>' + Object.keys(MODES).map((k) => '<button class="mode' + (k === pref ? ' on' : '') + '" data-mode="' + k + '">' + MODES[k] + '</button>').join('') + '</div>';
   body.innerHTML = head + modes + '<div class="maps">' + rows + '</div>' +
     '<div class="row"><button id="camp-upg">UPGRADES · CHEST ' + chestOf(nameOf(me)) + '</button><button id="camp-surv">SURVIVAL</button></div>' +
     '<div class="row"><button id="camp-free">FREE PLAY</button><button id="camp-place">REAL PLACE</button><button id="camp-cloud">CLOUD SAVE: ' + (c ? 'ON' : 'OFF') + '</button></div>' +
-    '<p class="fine">' + (c ? 'Saving to ' + c.repo + '. ' + (cloudState.status || '') : 'Saves stay in this browser until cloud save is set up.') + '</p>';
+    '<p class="fine">' + (c ? 'Saving to ' + c.repo + '. ' + (cloudState.status || '') : 'Saved in this browser only.') + '</p>';
   for (const b of body.querySelectorAll('button.mode')) b.onclick = () => { setModePref(b.dataset.mode); mapsScreen(why); };
   for (const b of body.querySelectorAll('button.map')) b.onclick = () => pickMap(+b.dataset.id, body);
   $('camp-free').onclick = () => { closeMaps(); startFreePlay(); };
@@ -3729,11 +3734,11 @@ function cloudScreen() {
   campTitle('CLOUD SAVE');
   const body = $('camp-body'), c = lsGet(CLOUD_KEY) || {};
   const guess = /\.github\.io$/.test(location.hostname) ? location.hostname.split('.')[0] + '/strike-saves' : '';
-  body.innerHTML = '<p>Cloud save keeps the campaign in a private GitHub repository, so either player can carry on the battle on any device.</p>' +
+  body.innerHTML = '<p class="fine">Keeps your campaign in a private GitHub repository, so you can carry on from any device.</p>' +
     '<label>REPOSITORY<br><input id="cloud-repo" type="text" value="' + (c.repo || guess) + '" placeholder="owner/strike-saves"></label>' +
     '<label>ACCESS KEY<br><input id="cloud-token" type="password" value="' + (c.token || '') + '" placeholder="github_pat_..." autocomplete="off"></label>' +
     '<div class="row"><button id="cloud-save">SAVE AND TEST</button><button id="cloud-off">TURN OFF</button><button id="cloud-back">BACK</button></div><p id="cloud-status" class="err"></p>' +
-    '<p class="fine">The key stays in this browser only. Make it a fine-grained key that can only read and write the contents of that one repository.</p>';
+    '<p class="fine">Use a fine-grained key for that one repository (contents: read and write). It stays in this browser.</p>';
   const keep = () => {                               // keep what was typed even without SAVE AND TEST
     const repo = $('cloud-repo').value.trim().replace(/^https:\/\/github.com\//, '').replace(/\/$/, ''), token = $('cloud-token').value.trim();
     if (repo && token) lsSet(CLOUD_KEY, { repo, token });
@@ -4720,7 +4725,7 @@ function whoScreen(done) {
   campTitle("WHO'S PLAYING");
   const body = $('camp-body'), cur = currentCrew();
   const list = myName() ? myCrews().map((c) => '<button class="map' + (c === cur ? ' cur' : '') + '" data-crew="' + c + '"><b>' + crewLabel(c) + '</b><span class="tag">' + (c === cur ? 'PLAYING' : '') + '</span></button>').join('') : '';
-  body.innerHTML = '<p>Who plays on this device? Each group of names has its own campaign: on your own, with Jake, with a friend. Linking up with someone puts you both in your shared campaign.</p>' +
+  body.innerHTML = '<p class="fine">Each name, or pair of names, has its own campaign.</p>' +
     '<label>NAME<br><input id="who-name" type="text" maxlength="12" value="' + myName() + '" placeholder="MIKE" autocomplete="off"></label>' +
     '<div class="row"><button id="who-ok">SAVE NAME</button><button id="who-back">BACK</button></div>' +
     (list ? '<p>YOUR CAMPAIGNS <span class="fine">(pick one to carry on when you play alone)</span></p><div class="maps">' + list + '</div>' : '');
@@ -5389,7 +5394,7 @@ function upgradesScreen(back) {
   const pi = me, name = nameOf(pi), chest = chestOf(name);
   const body = $('camp-body');
   campTitle('UPGRADES · ' + name);
-  body.innerHTML = '<p>WAR CHEST <b style="color:var(--yellow)">' + chest + '</b></p><p class="fine">Clear maps to add your leftover credits; rescues and priority targets pay in too. Upgrades last the whole campaign.</p>' +
+  body.innerHTML = '<p>WAR CHEST <b style="color:var(--yellow)">' + chest + '</b> <span class="fine">· earned by clearing maps and rescues</span></p>' +
     '<div class="upgs">' + UPGRADES.map((u) => {
       const lvl = upg(pi, u.id), cost = UPG_COST[lvl], top = lvl >= UPG_MAX;
       return '<button class="buy upg" data-k="' + u.id + '"' + (top || chest < cost ? ' disabled' : '') + '><b>' + u.name + ' ' + '■'.repeat(lvl) + '□'.repeat(UPG_MAX - lvl) + '</b><i>' + (top ? 'MAX' : cost) + '</i><span>' + u.info + '</span></button>';
@@ -5403,32 +5408,36 @@ function openUpgrades(back) {
 }
 
 // ===== briefings ==================================================================================================
-function objectiveLines() {
-  const out = [];
-  if (!campaign) return out;
+// The briefing as a short checklist: an icon, a few words, and the count or the reward on the right.
+function objectiveRows() {
+  const rows = [], row = (icon, color, label, right) => rows.push({ icon, color, label, right });
+  if (!campaign) return rows;
+  const alive = nests.filter((n) => n.alive).length;
   if (campaign.mode === 'survival') {
-    out.push('Hold out as long as you can. The nests can\'t be destroyed, and every horde is bigger than the last: 25, 50, 100, 200, then 500.');
-    out.push('It ends when your home base is wrecked. Best here: ' + (progNow().surv && progNow().surv[campaign.id] ? 'wave ' + progNow().surv[campaign.id] : 'none yet') + '.');
-    return out;
+    const best = (progNow().surv || {})[campaign.id];
+    row('●', '#a8d040', 'NESTS (CAN\'T BE DESTROYED)', alive);
+    row('▲', '#f09a7a', 'HORDES GROW EVERY WAVE', '25 → 500');
+    row('■', '#8fd8ec', 'KEEP YOUR HOME BASE STANDING', '');
+    row('★', '#f2d27a', 'BEST', best ? 'WAVE ' + best : '-');
+    return rows;
   }
-  if (armyOn()) out.push('Destroy all ' + world.bases.length + ' enemy bases.');
-  if (zombiesOn()) out.push('Destroy all ' + nests.filter((n) => n.alive).length + ' zombie nests. Their hordes grow: 25, 50, 100, 200, then 500.');
-  const pb = priorityBase();
-  if (pb >= 0) out.push('PRIORITY TARGET: the base marked with a yellow star. Take it out before any other: +400 credits each.');
-  if (campaign.spec.waves && armyOn()) out.push('Expect counter-attacks on your bases.');
-  for (const r of rescues) out.push('BONUS: ' + r.label + ' (' + (r.n > 1 ? r.n + ' people, +' + RESCUE_PAY[r.kind] + ' each' : '+' + RESCUE_PAY[r.kind]) + ').');
-  if (rescues.length) out.push('To rescue: hover low and slow beside them (or drive up in a jeep or buggy), then take them to any of your pads.');
-  return out;
+  if (armyOn()) row('■', '#f09a7a', 'DESTROY ENEMY BASES', world.bases.length);
+  if (zombiesOn()) row('●', '#a8d040', 'DESTROY ZOMBIE NESTS', alive);
+  if (priorityBase() >= 0) row('★', '#f2d27a', 'PRIORITY: ★ BASE FIRST', '+400');
+  for (const r of rescues) row('▲', '#8fd8ec', 'RESCUE ' + (r.kind === 'civ' ? 'CIVILIANS' : r.kind === 'pilot' ? 'PILOT' : 'PRISONERS') + (r.n > 1 ? ' ×' + r.n : ''), '+' + RESCUE_PAY[r.kind] + (r.n > 1 ? ' EA' : ''));
+  if (campaign.spec.waves && armyOn()) row('!', '#f09a7a', 'COUNTER-ATTACKS', 'EXPECTED');
+  return rows;
 }
 function openBriefing() {
   if (!campaign) return;
   keys.clear();
   const body = $('menu-body');
-  $('menu').querySelector('h2').textContent = 'BRIEFING'; $('menu').classList.remove('base');
-  const spec = campaign.spec;
-  body.innerHTML = '<p><b>MAP ' + campaign.id + ': ' + spec.name + '</b> · ' + (MODES[campaign.mode] || campaign.mode) + '</p><p class="fine">' + spec.brief + '</p>' +
-    '<ul class="obj">' + objectiveLines().map((l) => '<li>' + l + '</li>').join('') + '</ul>' +
-    '<button id="b-go">GO</button><button id="b-upg" class="wide">UPGRADES · WAR CHEST ' + chestOf(nameOf(me)) + '</button>';
+  $('menu').querySelector('h2').textContent = 'MAP ' + campaign.id + ' · ' + campaign.spec.name; $('menu').classList.remove('base');
+  const rows = objectiveRows();
+  body.innerHTML = '<p class="mode">' + (MODES[campaign.mode] || campaign.mode) + '</p>' +
+    '<div class="obj">' + rows.map((r) => '<div><i style="color:' + r.color + '">' + r.icon + '</i><span>' + r.label + '</span><b>' + r.right + '</b></div>').join('') + '</div>' +
+    (rescues.length && campaign.mode !== 'survival' ? '<p class="fine">Rescue: hover low and slow, then land on a pad.</p>' : '') +
+    '<button id="b-go">GO</button><button id="b-upg" class="wide">UPGRADES · CHEST ' + chestOf(nameOf(me)) + '</button>';
   $('menu').hidden = false;
   $('b-go').onclick = () => closeMenu();
   $('b-upg').onclick = () => { closeMenu(); openUpgrades(() => { closeMaps(); openBriefing(); }); };
@@ -5440,7 +5449,7 @@ function openBriefing() {
 function survivalScreen() {
   const prog = loadProgress(), body = $('camp-body');
   $('camp').hidden = false; keys.clear(); campTitle('ZOMBIE SURVIVAL');
-  body.innerHTML = '<p class="fine">Pick a map. No army; every enemy base is already a nest and the nests can\'t be destroyed. Hordes grow 25, 50, 100, 200, 500. Last as long as you can.</p><div class="maps">' +
+  body.innerHTML = '<p class="fine">Zombies only. Nests can\'t be destroyed; hordes grow every wave. Pick a map.</p><div class="maps">' +
     MAPS.map((m) => {
       const open = m.id <= prog.unlocked, best = (prog.surv || {})[m.id];
       return '<button class="map' + (open ? '' : ' locked') + '" data-id="' + m.id + '"' + (open ? '' : ' disabled') + '><span class="n">' + m.id + '</span><b>' + m.name + '</b><span class="tag">' + (open ? (best ? 'BEST: WAVE ' + best : 'NEW') : 'LOCKED') + '</span></button>';
@@ -5537,7 +5546,7 @@ function soundScreen(back) {
   const row = (id, label, on, vol) => '<div class="snd"><span>' + label + '</span><button id="' + id + '-on">' + (on ? 'ON' : 'OFF') + '</button>' +
     '<input id="' + id + '-vol" type="range" min="0" max="100" step="5" value="' + Math.round(vol * 100) + '"' + (on ? '' : ' disabled') + '><b id="' + id + '-n">' + Math.round(vol * 100) + '</b></div>';
   body.innerHTML = row('fx', 'EFFECTS', SND.on, SND.fxVol) + row('mu', 'MUSIC', SND.musicOn, SND.musVol) +
-    '<button id="snd-back">BACK</button><p class="fine">Remembered on this device. On iPhones the ringer switch must be on.</p>';
+    '<button id="snd-back">BACK</button><p class="fine">iPhone: the ringer switch must be on.</p>';
   $('fx-on').onclick = () => { setSound(!SND.on); soundScreen(back); };
   $('mu-on').onclick = () => { setMusic(!SND.musicOn); soundScreen(back); };
   $('fx-vol').oninput = (e) => { setFxVol(e.target.value / 100); $('fx-n').textContent = e.target.value; if (ok('sample', 0.25)) SFX.boom(placeAt(), 24); };
