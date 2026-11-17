@@ -1849,6 +1849,8 @@ function netMessage(m) {
     if (m.t === 'merge') {                            // the guest's own save of this map, and its progress: fold them in
       if (m.prog) saveProgress(mergeProgress(loadProgress(), m.prog));
       if (m.st && applyDelta(m.st)) { say('MERGED PLAYER 2\'S SAVED PROGRESS', 4); autosave(true); }
+      const c = cloudCfg();                         // player 2 has no cloud save (or another one): hand ours over, once
+      if (c && m.cloud !== c.repo) netSend({ t: 'cloud', repo: c.repo, token: c.token });
       return;
     }
     if (m.t !== 'in') return;
@@ -1893,12 +1895,15 @@ function netMessage(m) {
       if (campaign) {
         campaign.zoneHeld = world.bases.map((_, bi) => zoneHeld(bi));
         if (m.prog) lsSet(PROG_KEY, mergeProgress(loadProgress(), m.prog));
-        netSend({ t: 'merge', st: lsGet(mapKey(campaign.id)), prog: loadProgress() });
+        netSend({ t: 'merge', st: lsGet(mapKey(campaign.id)), prog: loadProgress(), cloud: cloudCfg() ? cloudCfg().repo : null });
         autosave(false);
       }
       break;
     }
     case 'enew': enemies.push(unpackExtra(m.a)); break;
+    case 'cloud':                                       // the host's cloud save settings, passed over the direct link
+      if (m.repo && m.token) { lsSet(CLOUD_KEY, { repo: m.repo, token: m.token }); sayLocal('CLOUD SAVE SWITCHED ON FOR THIS DEVICE', 5); }
+      break;
     case 'won': {
       if (campaign) campaign.won = true;
       const prog = loadProgress();
