@@ -2271,7 +2271,7 @@ function buildSnapshot() {
   const g = helis[1], h = helis[0], r = Math.round;
   const e = [], c = [];
   enemies.forEach((en, k) => {
-    if (!en.alive || gdist(en.x, en.y, g.x, g.y) > 1900) return;
+    if (!en.alive || gdist(en.x, en.y, g.x, g.y) > (isZed(en.type) ? 1300 : 1900)) return;     // zombies only near the guest (hordes can be 500 strong)
     e.push(k, r(en.x), r(en.y), +en.h.toFixed(2), +en.th.toFixed(2), en.gar >= 0 ? 2 + en.gar : en.engaged ? 1 : 0);
   });
   for (const car of cars) {
@@ -3580,7 +3580,7 @@ function updateFreeZombies(dt) {         // host / solo, free play only
   freeZ.zoneHeld = world.bases.map((_, bi) => baseAlive(bi));
 }
 const HORDE = 25;                                 // zombies wait round their nest until there are this many, then attack together
-const ZOMBIE_CAP = () => Math.max(MOBILE ? 70 : 100, nests.filter((n) => n.alive).length * (HORDE + 3));
+const ZOMBIE_CAP = () => Math.max(MOBILE ? 250 : 500, nests.filter((n) => n.alive).length * (HORDE + 3));
 let nests = [];                    // { cx, cy, x, y, hp, alive, age, clock, from }  from = enemy base index, or -1
 
 // --- nests ------------------------------------------------------------------------------------------------
@@ -3642,8 +3642,8 @@ function updateZombies(dt) {
     if (!n.alive) continue;
     n.age += dt; n.clock -= dt;
     if (n.clock > 0) continue;
-    n.clock = Math.max(6, 24 - n.age / 30) * rand(0.8, 1.2);
-    const brood = Math.min(4, 1 + Math.floor(n.age / 180));
+    n.clock = Math.max(5, 10 - n.age / 60) * rand(0.8, 1.2);      // every 10 s at first, down to every 5 s by 5 minutes
+    const brood = Math.min(4, 2 + Math.floor(n.age / 150));               // 2 at a time, 3 from 2.5 minutes, 4 from 5
     for (let k = 0; k < brood && alive < ZOMBIE_CAP(); k++) {
       const a = rand(0, Math.PI * 2), r = rand(2.5, 4.5), cx = n.cx + Math.cos(a) * r, cy = n.cy + Math.sin(a) * r;
       if (cellBlocks('foot', Math.round(cx), Math.round(cy))) continue;
