@@ -93,7 +93,7 @@
 <div id="menu" hidden><div class="box"><h2>PAUSED</h2><div id="menu-body"></div></div></div>
 <div id="mp" hidden><div class="box"><button id="mp-close" onclick="closeMulti()">X</button><h2>TWO PLAYERS</h2><div id="mp-body"></div></div></div>
 <div id="place" hidden><div class="box"><button id="place-close" onclick="closePlace()">X</button><h2>REAL PLACE</h2><div id="place-body"></div></div></div>
-<div id="camp" hidden><div class="box"><button id="camp-close" onclick="closeMaps()">X</button><h2>CAMPAIGN</h2><div id="camp-body"></div></div></div>
+<div id="camp" hidden><div class="box"><button id="camp-close" onclick="if ($('cloud-token')) { const r = $('cloud-repo').value.trim(), t = $('cloud-token').value.trim(); if (r && t) lsSet(CLOUD_KEY, { repo: r, token: t }); } closeMaps()">X</button><h2>CAMPAIGN</h2><div id="camp-body"></div></div></div>
 <div id="rotate">ROTATE YOUR PHONE<br>TO LANDSCAPE</div>
 <script>
 'use strict';
@@ -2792,6 +2792,7 @@ const mapKey = (id) => 'strike.v2.' + currentCrew() + '.map.' + id;
 const progKey = () => 'strike.v2.' + currentCrew() + '.progress';
 const cloudName = (n) => currentCrew().replace(/ /g, '_') + '/' + n;
 const lsGet = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (err) { return null; } };
+const storageWorks = () => { try { localStorage.setItem('strike.test', '1'); const ok = localStorage.getItem('strike.test') === '1'; localStorage.removeItem('strike.test'); return ok; } catch (err) { return false; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (err) { /* storage full or blocked */ } };
 
 // --- progress: which maps are unlocked, won, and how far along -------------------------------------------
@@ -3292,7 +3293,13 @@ function cloudScreen() {
     '<label>ACCESS KEY<br><input id="cloud-token" type="password" value="' + (c.token || '') + '" placeholder="github_pat_..." autocomplete="off"></label>' +
     '<div class="row"><button id="cloud-save">SAVE AND TEST</button><button id="cloud-off">TURN OFF</button><button id="cloud-back">BACK</button></div><p id="cloud-status" class="err"></p>' +
     '<p class="fine">The key stays in this browser only. Make it a fine-grained key that can only read and write the contents of that one repository.</p>';
-  $('cloud-back').onclick = () => mapsScreen();
+  const keep = () => {                               // keep what was typed even without SAVE AND TEST
+    const repo = $('cloud-repo').value.trim().replace(/^https:\/\/github.com\//, '').replace(/\/$/, ''), token = $('cloud-token').value.trim();
+    if (repo && token) lsSet(CLOUD_KEY, { repo, token });
+  };
+  $('cloud-repo').oninput = keep; $('cloud-token').oninput = keep; $('cloud-token').onchange = keep;
+  if (!storageWorks()) $('cloud-status').textContent = 'This browser is not keeping anything (private browsing, or storage switched off), so saves and the key are lost when the page closes.';
+  $('cloud-back').onclick = () => { keep(); mapsScreen(); };
   $('cloud-off').onclick = () => { try { localStorage.removeItem(CLOUD_KEY); } catch (err) { /* ignore */ } mapsScreen(); };
   $('cloud-save').onclick = async () => {
     const repo = $('cloud-repo').value.trim().replace(/^https:\/\/github.com\//, '').replace(/\/$/, ''), token = $('cloud-token').value.trim();
