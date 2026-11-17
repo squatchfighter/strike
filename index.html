@@ -869,7 +869,7 @@ function initCombat() {
   targetAt = new Map(world.targets.map((t) => [t.i, t]));
   for (const pl of players) Object.assign(pl, { kind: 'apache', vid: -1, footArmor: VEH.foot.armor, armor: VEH.apache.armor, fuel: PLAYER_MAX.fuel, ammo: fullAmmo('apache'), cool: [0, 0, 0], dead: 0, score: 0, hitFlash: 0, lock: null, inLine: null, weapons: [false, false, false], wash: 0, walk: 0 });
   players[0].active = true; players[1].active = role !== 'solo';
-  for (const v of world.vehicles) addVehicle(v.kind, v.skin, cellX(v.x, v.y), cellY(v.x, v.y), v.h);
+  for (const v of world.vehicles) { const nv = addVehicle(v.kind, v.skin, cellX(v.x, v.y), cellY(v.x, v.y), v.h); if (v.skin === 'e') nv.armor *= 0.5; }   // parked enemy vehicles are unmanned: easier to knock out
   for (let pi = 0; pi < 2; pi++) if (players[pi].active) giveApache(pi);
   const pt = (c) => ({ x: cellX(c[0], c[1]), y: cellY(c[0], c[1]) });
   for (const s of world.spawns) {
@@ -940,6 +940,9 @@ const posBlocks = (kind, x, y) => cellBlocks(kind, Math.round(mapX(x, y)), Math.
 function interactHint(pi) {
   const pl = players[pi], h = helis[pi];
   if (pl.dead) return '';
+  const bs = typeof buildableAt === 'function' && Math.hypot(h.vx, h.vy) < 150 ? buildableAt(pi) : -1;
+  if (bs >= 0) return 'BUILD BASE HERE';
+  if (bs === -2) return 'CANNOT BUILD: ENEMY ON SITE';
   if (pl.kind !== 'foot') {
     if (Math.hypot(h.vx, h.vy) > 150) return veh(pi).air ? 'SLOW DOWN TO LAND' : '';
     if (veh(pi).air && posBlocks('foot', h.x, h.y)) return 'CANNOT LAND HERE';
@@ -961,6 +964,7 @@ function interact(pi) {
   if (!authority()) { netSend({ t: 'act' }); return; }
   const pl = players[pi], h = helis[pi], hint = interactHint(pi);
   if (!hint || hint.startsWith('SLOW') || hint.startsWith('CANNOT')) { if (hint) sayTo(pi, hint, 1.5); return; }
+  if (hint === 'BUILD BASE HERE') { buildFriendlyBase(buildableAt(pi), { vehicles: true }); return; }
   if (pl.kind !== 'foot') {                              // leave the vehicle where it is and step out beside it
     const v = vehicles[pl.vid];
     v.armor = pl.armor; v.fuel = pl.fuel; v.ammo = pl.ammo.map(Math.floor); v.by = -1; v.x = h.x; v.y = h.y; v.h = h.heading; v.vx = v.vy = 0;
@@ -1220,15 +1224,23 @@ function die(pi, why) {
   if (role === 'host') sayTo(1 - pi, 'YOUR WINGMAN IS DOWN', 3);
 }
 function addCorpse(x, y, h) { corpses.push({ x, y, h, t: time }); if (corpses.length > 40) corpses.shift(); }
+// Helipads you can resupply and respawn at: home, plus every base you have built.
+function friendlyPads() {
+  const out = [{ cx: world.home.x, cy: world.home.y, zone: -1 }];
+  if (typeof campaign !== 'undefined' && campaign) for (const bi of campaign.built) out.push({ cx: world.bases[bi].x + 6, cy: world.bases[bi].y + 6, zone: bi });
+  for (const p of out) { p.x = cellX(p.cx - 0.5, p.cy - 0.5); p.y = cellY(p.cx - 0.5, p.cy - 0.5); }
+  return out;
+}
+function nearestPad(x, y) { let best = null, bd = 1e12; for (const p of friendlyPads()) { const d = gdist(x, y, p.x, p.y); if (d < bd) { bd = d; best = p; } } return best; }
 function respawn(pi) {
-  const pl = players[pi];
-  const cx = world.home.x - 0.5 + (pi ? 1.6 : 0), cy = world.home.y - 0.5 - (pi ? 1.6 : 0);
+  const pl = players[pi], pad = nearestPad(helis[pi].x, helis[pi].y);
+  const cx = pad.cx - 0.5 + (pi ? 1.6 : 0), cy = pad.cy - 0.5 - (pi ? 1.6 : 0);
   setHeli(helis[pi], cx, cy);
   helis[pi].heading = -Math.PI / 4;
   pl.dead = 0; pl.footArmor = VEH.foot.armor; pl.cool = [0, 0, 0];
   const v = giveApache(pi);
   setPlayerKind(pi, 'apache', v.id, helis[pi].x, helis[pi].y, helis[pi].heading);
-  sayTo(pi, 'BACK AT BASE IN A FRESH APACHE', 4);
+  sayTo(pi, (pad.zone >= 0 ? 'BACK AT YOUR FORWARD BASE' : 'BACK AT BASE') + ' IN A FRESH APACHE', 4);
 }
 
 // --- weapons ------------------------------------------------------------------------------------
@@ -1244,6 +1256,7 @@ function findLock(heli) {
   };
   for (const e of enemies) if (e.alive) consider(e.x, e.y, ENEMY[e.type].z * 0.5, ENEMY[e.type].radius, e);
   for (const t of world.targets) if (t.alive) { const p = targetPos(t); consider(p.x, p.y, t.large ? 14 : 6, t.radius, t); }
+  for (const v of vehicles) if (v && v.alive && v.skin === 'e' && v.by < 0) consider(v.x, v.y, VEH[v.kind].air ? 18 : 10, 26, v);
   return best;
 }
 // No military target ahead: aim at the first thing standing in the line of fire, whatever it is.
@@ -1458,8 +1471,8 @@ function updatePlayer(pi, dt) {
     for (let j = 0; j < 8; j++) puff('spark', p.x, p.y, 6, { vx: rand(-60, 60), vy: rand(-30, 30), vz: rand(80, 200), life: rand(0.4, 0.8) });
   }
   // sitting on the home helipad resupplies whatever you are in
-  const hx = cellX(world.home.x - 0.5, world.home.y - 0.5), hy = cellY(world.home.x - 0.5, world.home.y - 0.5);
-  const onPad = gdist(heli.x, heli.y, hx, hy) < 64 && Math.hypot(heli.vx, heli.vy) < 90 && !(typeof homeUnderAttack === 'function' && homeUnderAttack());
+  const pad = nearestPad(heli.x, heli.y);
+  const onPad = gdist(heli.x, heli.y, pad.x, pad.y) < 64 && Math.hypot(heli.vx, heli.vy) < 90 && !(typeof padUnderAttack === 'function' && padUnderAttack(pad));
   const full = fullAmmo(pl.kind);
   const needs = (kind.fuel && pl.fuel < PLAYER_MAX.fuel - 4) || pl.armor < kind.armor - 1 || pl.ammo.some((a, s) => a < full[s]);
   if (onPad && needs) {
@@ -1557,7 +1570,7 @@ function collectDynamics(ox, oy) {
   const rows = new Map();
   const add = (y, item) => { const s = Math.round(y / (TH / 2)); let r = rows.get(s); if (!r) rows.set(s, r = []); r.push(item); };
   const vis = (x, y) => x > ox - 120 && x < ox + W + 120 && y > oy - 120 && y < oy + H + 160;
-  for (const e of enemies) if (e.type !== 'gunship' && vis(e.x, e.y)) add(e.y, { k: 'enemy', e });
+  for (const e of enemies) if (e.type !== 'gunship' && !e.gone && vis(e.x, e.y)) add(e.y, { k: 'enemy', e });
   for (const c of corpses) if (vis(c.x, c.y)) add(c.y - 1, { k: 'corpse', c });
   for (const p of pickups) if (!p.taken && vis(p.x, p.y)) add(p.y, { k: 'pickup', p });
   for (const v of vehicles) if (v && !v.gone && vis(v.x, v.y) && !(VEH[v.kind].air && v.alive && v.alt > 3)) add(v.y, { k: 'veh', v });
@@ -1673,8 +1686,8 @@ function drawReticle(ox, oy) {
     ctx.fillRect(x + cx * r - 1, y + cy * ry - (cy > 0 ? n : 0), 2, n);
   }
 }
-function baseAlive(bi) {
-  return world.targets.some((t) => t.alive && t.base === bi) || enemies.some((e) => e.alive && e.base === bi && e.type !== 'inf');
+function baseAlive(bi) {                         // a base stands while any of its buildings does
+  return world.targets.some((t) => t.alive && t.base === bi);
 }
 
 // --- combat HUD (HUD units) ---------------------------------------------------------------------------
@@ -1698,7 +1711,7 @@ function drawCombatHud() {
     const label = (MOBILE ? '' : 'E  ') + hint;
     text(label, Math.round(r[0] + (r[2] - label.length * FONT_W) / 2), r[1] + 5, go ? 'yellow' : 'white');
   }
-  const status = (typeof campaign !== 'undefined' && campaign) ? (campaign.won ? 'CLEARED' : 'ENEMY ' + enemyLeft()) : 'TARGETS ' + targetsLeft;
+  const status = (typeof campaign !== 'undefined' && campaign) ? (campaign.won ? 'CLEARED' : 'ENEMY BASES ' + world.bases.filter((_, bi) => baseAlive(bi)).length) : 'TARGETS ' + targetsLeft;
   text(status, UW - 4 - status.length * FONT_W, 30, 'yellow');
   const sc = 'SCORE ' + pad(player.score, 6);
   text(sc, UW - 4 - sc.length * FONT_W, 41);
@@ -1719,7 +1732,7 @@ function drawCombatHud() {
   const hmx = mapX(heli.x, heli.y), hmy = mapY(heli.x, heli.y);
   world.bases.forEach((b, bi) => {
     const live = baseAlive(bi);
-    dot(b.x + 6, b.y + 6, live ? '#f04838' : '#5a4a44', 1);
+    dot(b.x + 6, b.y + 6, live ? '#f04838' : (typeof campaign !== 'undefined' && campaign && campaign.built.includes(bi)) ? '#70a8e8' : '#5a4a44', 1);
     const d = Math.hypot(b.x + 6 - hmx, b.y + 6 - hmy);
     if (live && d < nearestD) { nearestD = d; nearest = b; }
   });
@@ -1880,7 +1893,7 @@ function netHello() {                                 // everything a (re)joinin
   const aliveCars = new Set(cars.map((c) => c.id));
   netSend({
     t: 'hello', seed, place: currentPlace, tl: targetsLeft,
-    camp: campaign ? { id: campaign.id, elapsed: campaign.elapsed, wave: campaign.waveClock, waves: campaign.waves, won: campaign.won } : null,
+    camp: campaign ? { id: campaign.id, elapsed: campaign.elapsed, wave: campaign.waveClock, waves: campaign.waves, won: campaign.won, built: campaign.built } : null,
     ex: campaign ? enemies.slice(campaign.nSpawn).map((e) => packExtra(e)) : [], prog: loadProgress(),
     cells: [...changedCells].map((i) => [i, world.small[i], world.large[i]]),
     ek: enemies.map((e, k) => (e.alive ? -1 : k)).filter((k) => k >= 0),
@@ -1949,7 +1962,7 @@ function netMessage(m) {
       } else if (m.camp) {
         NET.busy = false;
         const spec = MAPS[m.camp.id - 1];
-        campaign = { id: m.camp.id, spec, elapsed: m.camp.elapsed, waveClock: m.camp.wave, waves: m.camp.waves, won: m.camp.won, nSpawn: 0, saveClock: 0, zoneHeld: [] };
+        campaign = { id: m.camp.id, spec, elapsed: m.camp.elapsed, waveClock: m.camp.wave, waves: m.camp.waves, won: m.camp.won, nSpawn: 0, saveClock: 0, zoneHeld: [], built: [] };
         newWorld(spec.seed, null, spec);
         campaign.nSpawn = enemies.length;
         for (const a of m.ex) enemies.push(unpackExtra(a));
@@ -1966,6 +1979,8 @@ function netMessage(m) {
       snapCamera(); reveal(REVEAL_RADIUS);
       sayLocal(campaign ? 'LINKED. MAP ' + campaign.id + ': ' + campaign.spec.name : 'LINKED. YOU ARE PLAYER 2', 4);
       if (campaign) {
+        for (const bi of m.camp && m.camp.built ? m.camp.built : []) buildFriendlyBase(bi, { quiet: true });
+        if (campaign.won) surrender();
         campaign.zoneHeld = world.bases.map((_, bi) => zoneHeld(bi));
         if (m.prog) lsSet(PROG_KEY, mergeProgress(loadProgress(), m.prog));
         netSend({ t: 'merge', st: lsGet(mapKey(campaign.id)), prog: loadProgress(), cloud: cloudCfg() ? cloudCfg().repo : null });
@@ -1974,11 +1989,12 @@ function netMessage(m) {
       break;
     }
     case 'enew': enemies.push(unpackExtra(m.a)); break;
+    case 'build': if (campaign) { buildFriendlyBase(m.bi, { quiet: true }); sayLocal('FORWARD BASE BUILT', 4); } break;
     case 'cloud':                                       // the host's cloud save settings, passed over the direct link
       if (m.repo && m.token) { lsSet(CLOUD_KEY, { repo: m.repo, token: m.token }); sayLocal('CLOUD SAVE SWITCHED ON FOR THIS DEVICE', 5); }
       break;
     case 'won': {
-      if (campaign) campaign.won = true;
+      if (campaign) { campaign.won = true; surrender(); }
       const prog = loadProgress();
       if (!prog.won.includes(m.id)) prog.won.push(m.id);
       prog.unlocked = Math.max(prog.unlocked, Math.min(MAPS.length, m.id + 1)); prog.pct[m.id] = 100;
@@ -2561,16 +2577,18 @@ function captureState() {
   return {
     v: SAVE_V, id: campaign.id, t: Date.now(), elapsed: Math.round(campaign.elapsed), wave: Math.round(campaign.waveClock), waves: campaign.waves, won: campaign.won,
     cells: [...changedCells].map((i) => [i, world.small[i], world.large[i]]),
+    built: campaign.built.slice(),
     ek: enemies.slice(0, n).map((e, k) => (e.alive ? -1 : k)).filter((k) => k >= 0),
     tk: world.targets.map((t, k) => (t.alive ? -1 : k)).filter((k) => k >= 0),
     pk: pickups.map((p, k) => (p.taken ? k : -1)).filter((k) => k >= 0),
     extra: enemies.slice(n).filter((e) => e.alive).map(packExtra),
   };
 }
-const packExtra = (e) => [e.type, Math.round(e.x), Math.round(e.y), e.base, e.goal ? e.goal.zone : -9, Math.round(e.hp)];
+const packExtra = (e) => [e.type, Math.round(e.x), Math.round(e.y), e.base, e.goal ? e.goal.zone : -9, Math.round(e.hp), e.siegeZone === undefined ? -1 : e.siegeZone];
 function unpackExtra(a) {
-  const [type, x, y, base, gz, hp] = a;
+  const [type, x, y, base, gz, hp, sz] = a;
   const e = makeEnemy(type, x, y, base);
+  e.siegeZone = sz === undefined ? -1 : sz;
   e.hp = hp || e.hp;
   if (gz !== -9) setGoal(e, gz);
   return e;
@@ -2588,7 +2606,7 @@ function mergeStates(a, b) {
   const u = (x, y) => [...new Set([...(x || []), ...(y || [])])];
   return {
     v: SAVE_V, id: newer.id, t: newer.t, elapsed: Math.max(older.elapsed || 0, newer.elapsed || 0), wave: newer.wave, waves: Math.max(older.waves || 0, newer.waves || 0),
-    won: !!(older.won || newer.won), cells: [...cells.values()], ek: u(older.ek, newer.ek), tk: u(older.tk, newer.tk), pk: u(older.pk, newer.pk), extra: newer.extra || [],
+    won: !!(older.won || newer.won), built: u(older.built, newer.built), cells: [...cells.values()], ek: u(older.ek, newer.ek), tk: u(older.tk, newer.tk), pk: u(older.pk, newer.pk), extra: newer.extra || [],
   };
 }
 // Apply a save to a freshly generated map.
@@ -2599,6 +2617,8 @@ function applyState(st) {
   for (const k of st.pk || []) if (pickups[k]) pickups[k].taken = true;
   for (const a of st.extra || []) enemies.push(unpackExtra(a));
   campaign.elapsed = st.elapsed || 0; campaign.waveClock = st.wave || 0; campaign.waves = st.waves || 0; campaign.won = !!st.won;
+  for (const bi of st.built || []) buildFriendlyBase(bi, { quiet: true, vehicles: true });
+  if (campaign.won) surrender();
   recountTargets();
 }
 // Apply what another save knows on top of the live battle (cloud save or the other player's device).
@@ -2609,7 +2629,8 @@ function applyDelta(st) {
   for (const k of st.ek || []) { const e = enemies[k]; if (e && e.alive && k < campaign.nSpawn) { e.alive = false; if (role === 'host') netSend({ t: 'ekill', k }); n++; } }
   for (const k of st.tk || []) { const t = world.targets[k]; if (t && t.alive) { t.alive = false; if (role === 'host') netSend({ t: 'tkill', k }); n++; } }
   for (const k of st.pk || []) { const p = pickups[k]; if (p && !p.taken) { p.taken = true; if (role === 'host') netSend({ t: 'pick', k }); } }
-  if (st.won) campaign.won = true;
+  for (const bi of st.built || []) if (!campaign.built.includes(bi) && !baseAlive(bi)) { buildFriendlyBase(bi, { quiet: true, vehicles: true }); if (role === 'host') netSend({ t: 'build', bi }); n++; }
+  if (st.won && !campaign.won) { campaign.won = true; surrender(); }
   campaign.elapsed = Math.max(campaign.elapsed, st.elapsed || 0);
   recountTargets();
   return n;
@@ -2617,8 +2638,8 @@ function applyDelta(st) {
 function recountTargets() { targetsLeft = world.targets.filter((t) => t.alive).length + enemies.filter((e) => e.alive && e.type !== 'inf').length; }
 const enemyLeft = () => world.targets.filter((t) => t.alive).length + enemies.filter((e) => e.alive).length;
 function progressPct() {
-  const total = world.targets.length + campaign.nSpawn;
-  return total ? Math.round(100 * (1 - Math.min(total, enemyLeft()) / total)) : 0;
+  const total = world.targets.length;
+  return total ? Math.round(100 * world.targets.filter((t) => !t.alive).length / total) : 0;
 }
 
 // --- starting a map --------------------------------------------------------------------------------------------
@@ -2626,7 +2647,7 @@ function startMap(id, opts) {
   opts = opts || {};
   const spec = MAPS[id - 1];
   if (!spec) return;
-  campaign = { id, spec, elapsed: 0, waveClock: 0, waves: 0, won: false, nSpawn: 0, saveClock: 0, zoneHeld: [], announced: false };
+  campaign = { id, spec, elapsed: 0, waveClock: 0, waves: 0, won: false, nSpawn: 0, saveClock: 0, zoneHeld: [], announced: false, built: [] };
   newWorld(spec.seed, null, spec);
   campaign.nSpawn = enemies.length;
   const local = lsGet(mapKey(id));
@@ -2643,21 +2664,21 @@ function startMap(id, opts) {
 function startFreePlay(s) { campaign = null; newWorld(s === undefined ? Math.floor(Math.random() * 100000) : s); }
 
 // --- zones -------------------------------------------------------------------------------------------------------------
-function zoneHeld(bi) { return baseAlive(bi) || enemies.some((e) => e.alive && e.base === bi); }
+function zoneHeld(bi) { return baseAlive(bi); }
 const zoneCentre = (bi) => { const b = world.bases[bi]; return { cx: b.x + 6, cy: b.y + 6, x: cellX(b.x + 5.5, b.y + 5.5), y: cellY(b.x + 5.5, b.y + 5.5) }; };
 function updateZones() {
   world.bases.forEach((b, bi) => {
     const held = zoneHeld(bi);
     if (held === campaign.zoneHeld[bi]) return;
     campaign.zoneHeld[bi] = held;
-    if (!held) { for (const pl of players) if (pl.active) pl.score += 1500; say('ZONE TAKEN. ' + campaign.zoneHeld.filter((h) => !h).length + ' OF ' + world.bases.length + ' ARE YOURS', 5); }
-    else say('THE ENEMY HAS RETAKEN A ZONE', 5);
+    if (!held) { for (const pl of players) if (pl.active) pl.score += 1500; say('ENEMY BASE DESTROYED. ' + campaign.zoneHeld.filter((h) => h).length + ' LEFT. LAND THERE TO BUILD YOUR OWN', 6); }
     autosave(true);
   });
-  if (!campaign.won && enemyLeft() === 0) {
+  if (!campaign.won && world.bases.every((_, bi) => !baseAlive(bi))) {
     campaign.won = true;
     for (const pl of players) if (pl.active) pl.score += 10000;
-    say('MAP CLEARED. NONE OF THEM ARE LEFT', 8);
+    surrender();
+    say('MAP CLEARED. EVERY ENEMY BASE IS DOWN AND THE REST HAVE SURRENDERED', 8);
     const prog = loadProgress();
     if (!prog.won.includes(campaign.id)) prog.won.push(campaign.id);
     prog.unlocked = Math.max(prog.unlocked, Math.min(MAPS.length, campaign.id + 1));
@@ -2666,6 +2687,69 @@ function updateZones() {
     autosave(true);
     if (role === 'host') netSend({ t: 'won', id: campaign.id });
     setTimeout(() => openMaps('won'), 3500);
+  }
+}
+
+// With every base gone, whatever enemy units are left give up and leave the map.
+function surrender() { for (const e of enemies) if (e.alive) { e.alive = false; e.gone = true; } recountTargets(); }
+
+// --- your own bases: built on the ground of an enemy base you destroyed -------------------------------------
+const onSite = (bi, x, y) => { const b = world.bases[bi], mx = Math.round(mapX(x, y)), my = Math.round(mapY(x, y)); return mx >= b.x - 2 && mx <= b.x + 13 && my >= b.y - 2 && my <= b.y + 13; };
+const enemyOnSite = (bi) => enemies.some((e) => e.alive && onSite(bi, e.x, e.y));
+function buildableAt(pi) {
+  if (!campaign) return -1;
+  const h = helis[pi], mx = mapX(h.x, h.y), my = mapY(h.x, h.y);
+  for (let bi = 0; bi < world.bases.length; bi++) {
+    if (campaign.built.includes(bi) || baseAlive(bi)) continue;
+    const c = zoneCentre(bi);
+    if (Math.hypot(mx - c.cx, my - c.cy) < 4) return enemyOnSite(bi) ? -2 : bi;
+  }
+  return -1;
+}
+// Clean the whole site up (rubble, wrecks, craters, bodies), lay fresh concrete, and put up a base like home:
+// helipad (resupply and respawn), hangars, barracks, fuel depot, a full fence line with gates, towers,
+// and a tank and a jeep parked for you.
+function buildFriendlyBase(bi, opts) {
+  opts = opts || {};
+  if (bi < 0 || campaign.built.includes(bi)) return;
+  const r = world.bases[bi], ox = r.x, oy = r.y;
+  const inBase = (x, y) => x >= ox && x < ox + 12 && y >= oy && y < oy + 12;
+  for (let y = oy - 1; y <= oy + 12; y++) for (let x = ox - 1; x <= ox + 12; x++) {
+    const i = y * SIZE + x;
+    world.small[i] = -1; world.large[i] = -1; propHp[i] = 0; changedCells.add(i);
+    world.fringeA[i] = world.fringeB[i] = world.fringeC[i] = world.fringeD[i] = 0;
+    if (inBase(x, y)) { world.ground[i] = T.CONCRETE; world.override[i] = -1; world.variant[i] = (x * 3 + y * 5) & 7; world.blocked[i] = 1; }
+  }
+  [[0, 0], [1, 0], [0, 1], [1, 1]].forEach(([dx, dy], k) => { const i = (oy + 5 + dy) * SIZE + ox + 5 + dx; world.ground[i] = T.HELIPAD; world.override[i] = k + 11 * 16; });
+  const large = (x, y, idx) => { world.large[(oy + y + 1) * SIZE + ox + x + 1] = idx; };
+  const small = (x, y, idx) => { world.small[(oy + y) * SIZE + ox + x] = idx; };
+  large(1, 1, L.HANGAR); large(1, 4, L.HANGAR); large(8, 1, L.BARRACKS + 1); large(8, 8, L.FUEL_DEPOT);
+  for (const [x, y] of [[2, 8], [4, 9], [1, 10]]) small(x, y, P.TENT);
+  small(6, 10, P.CRATES); small(7, 9, P.CRATES + 1); small(8, 4, P.FLAG_HOME); small(10, 5, P.RADAR);
+  for (const [x, y] of [[0, 0], [11, 0], [0, 11], [11, 11]]) small(x, y, P.TOWER);
+  for (let k = 1; k <= 10; k++) {
+    if (k === 5 || k === 6) continue;
+    small(k, 0, P.FENCE_X); small(k, 11, P.FENCE_X); small(0, k, P.FENCE_Y); small(11, k, P.FENCE_Y);
+  }
+  // clear away what is left of the enemy here: wrecks and bodies on the site
+  const site = (x, y) => onSite(bi, x, y);
+  for (const e of enemies) if (!e.alive && site(e.x, e.y)) e.gone = true;
+  for (const v of vehicles) if (v && site(v.x, v.y)) { if (!v.alive) v.gone = true; else if (v.skin === 'e' && v.by < 0) { v.skin = 'f'; v.armor = VEH[v.kind].armor; } }   // their parked vehicles are yours now
+  emitters = emitters.filter((m) => !site(m.x, m.y));                   // the fires are out
+  campaign.built.push(bi);
+  flowCache.clear();
+  if (typeof repaintMap === 'function' && minimap) repaintMap(ox - 1, oy - 1, ox + 12, oy + 12);
+  if (opts.vehicles && role !== 'guest') {
+    for (const [kind, x, y, h] of [['tank', 3.5, 6.5, 0.6], ['jeep', 9.5, 6.5, 2.2]]) {
+      const v = addVehicle(kind, 'f', cellX(ox + x, oy + y), cellY(ox + x, oy + y), h);
+      if (role === 'host') netSend({ t: 'vnew', v: packVehicle(v), pi: -1 });
+    }
+  }
+  if (!opts.quiet) {
+    for (let k = 0; k < 40; k++) puff('dust', cellX(ox + rand(0, 12), oy + rand(0, 12)), cellY(ox + rand(0, 12), oy + rand(0, 12)), rand(2, 14), { r: rand(8, 16), life: rand(1.2, 2.4), c: '#b8b0a0', a: 0.5, vz: rand(8, 20) });
+    say('FORWARD BASE BUILT. RESUPPLY AND RESPAWN HERE. DEFEND IT', 6);
+    if (role === 'host') netSend({ t: 'build', bi });
+    autosave(true);
   }
 }
 
@@ -2704,7 +2788,7 @@ function launchWave() {
   if (marching >= w.size * 2) return;                          // do not let waves pile up forever
   const from = held[Math.floor(Math.random() * held.length)], o = zoneCentre(from);
   // nearest of your zones (or your home base), reachable by land if possible
-  const mine = world.bases.map((_, bi) => bi).filter((bi) => !campaign.zoneHeld[bi]);
+  const mine = campaign.built.slice();
   const goals = mine.map((bi) => ({ zone: bi, d: Math.hypot(zoneCentre(bi).cx - o.cx, zoneCentre(bi).cy - o.cy) }));
   goals.push({ zone: -1, d: Math.hypot(world.home.x - o.cx, world.home.y - o.cy) * 1.15 });
   goals.sort((a, b) => a.d - b.d);
@@ -2737,18 +2821,15 @@ function launchWave() {
   for (let j = 0; j < air; j++) add('gunship', o.cx + rand(-3, 3), o.cy + rand(-3, 3));
   campaign.waves++;
   recountTargets();
-  say(goal.zone >= 0 ? 'COUNTER-ATTACK INBOUND ON ONE OF YOUR ZONES' : 'COUNTER-ATTACK INBOUND ON HOME BASE', 5);
+  say(goal.zone >= 0 ? 'COUNTER-ATTACK INBOUND ON YOUR FORWARD BASE' : 'COUNTER-ATTACK INBOUND ON HOME BASE', 5);
 }
 // Called from updateEnemies for a unit that is marching somewhere.
 function moveWave(e, dt) {
   const def = ENEMY[e.type], g = e.goal;
-  const arrive = () => {
-    if (g.zone >= 0) e.base = g.zone; else e.base = -2;            // -2: besieging your home base
-    e.goal = null;
-  };
+  const arrive = () => { e.base = -2; e.siegeZone = g.zone; e.goal = null; };    // -2: besieging one of your bases
   let want;
   if (def.air) {
-    if (gdist(e.x, e.y, g.x, g.y) < 90) { if (e.arrived && g.zone < 0) siegeHome(e, dt); e.h += dt * 0.6; e.x += Math.cos(e.h) * def.speed * 0.4 * dt; e.y += Math.sin(e.h) * def.speed * 0.2 * dt; if (!e.arrived) { e.arrived = true; arrive(); e.goal = g; } return; }
+    if (gdist(e.x, e.y, g.x, g.y) < 90) { if (e.arrived) siegeHome(e, dt); e.h += dt * 0.6; e.x += Math.cos(e.h) * def.speed * 0.4 * dt; e.y += Math.sin(e.h) * def.speed * 0.2 * dt; if (!e.arrived) { e.arrived = true; arrive(); e.goal = g; } return; }
     want = gangle(e.x, e.y, g.x, g.y);
   } else {
     const cx = Math.round(mapX(e.x, e.y)), cy = Math.round(mapY(e.x, e.y));
@@ -2771,12 +2852,13 @@ function siegeHome(e, dt) {
   e.siege = (e.siege || rand(2, 5)) - dt;
   if (e.siege > 0) return;
   e.siege = rand(3, 6);
-  const hb = world.homeBase, x = hb.x + rand(1, 11), y = hb.y + rand(1, 11);
+  const hb = e.siegeZone >= 0 ? world.bases[e.siegeZone] : world.homeBase, x = hb.x + rand(1, 11), y = hb.y + rand(1, 11);
   const px = cellX(x, y), py = cellY(x, y);
   addShot({ enemy: true, kind: e.type, pi: -1, x0: e.x, y0: e.y, z0: ENEMY[e.type].z, x1: px, y1: py, z1: 4, t: 0, T: Math.max(0.1, gdist(e.x, e.y, px, py) / ENEMY[e.type].shot), dmg: 0, hit: 0, x: e.x, y: e.y, z: ENEMY[e.type].z, siege: { blast: 30, dmg: ENEMY[e.type].dmg * 2 } });
-  if (!campaign.siegeSaid || time > campaign.siegeSaid) { campaign.siegeSaid = time + 30; say('HOME BASE UNDER ATTACK', 4); }
+  if (!campaign.siegeSaid || time > campaign.siegeSaid) { campaign.siegeSaid = time + 30; say(e.siegeZone >= 0 ? 'YOUR FORWARD BASE IS UNDER ATTACK' : 'HOME BASE UNDER ATTACK', 4); }
 }
-const homeUnderAttack = () => campaign && enemies.some((e) => e.alive && e.base === -2 && Math.hypot(mapX(e.x, e.y) - world.home.x, mapY(e.x, e.y) - world.home.y) < 14);
+const padUnderAttack = (p) => campaign && enemies.some((e) => e.alive && e.base === -2 && Math.hypot(mapX(e.x, e.y) - p.cx, mapY(e.x, e.y) - p.cy) < 14);
+const homeUnderAttack = () => padUnderAttack({ cx: world.home.x, cy: world.home.y });
 
 // --- the campaign clock (host / solo only) -----------------------------------------------------------------------------
 function updateCampaign(dt) {
@@ -3526,6 +3608,16 @@ function initMaps() {
   }
   reveal(REVEAL_RADIUS);
 }
+// Repaint already-discovered map cells (after a base is built, the ground there changed).
+function repaintMap(x0, y0, x1, y1) {
+  const g = minimap.getContext('2d'), G = bigMap.getContext('2d');
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const i = y * SIZE + x; if (!discovered[i]) continue;
+    const col = MAP_COLORS[world.ground[i]];
+    g.fillStyle = col; g.fillRect(Math.floor(miniX(x, y)), Math.floor(miniY(x, y)), 1, 1);
+    G.fillStyle = col; G.fillRect(255 + x - y, (x + y) >> 1, 2, 1);
+  }
+}
 function reveal(radius, atX, atY) {
   const cx = atX !== undefined ? atX : Math.round(mapX(heli.x, heli.y)), cy = atY !== undefined ? atY : Math.round(mapY(heli.x, heli.y));
   const g = minimap.getContext('2d'), G = bigMap.getContext('2d');
@@ -3549,7 +3641,11 @@ function drawBigMap() {
   const mark = (x, y, color, r) => { ctx.fillStyle = '#0c0f14'; ctx.fillRect(Math.round(px(x, y)) - r - 1, Math.round(py(x, y)) - r - 1, r * 2 + 3, r * 2 + 3); ctx.fillStyle = color; ctx.fillRect(Math.round(px(x, y)) - r, Math.round(py(x, y)) - r, r * 2 + 1, r * 2 + 1); };
   mark(world.homeBase.x + 6, world.homeBase.y + 6, '#70a8e8', 2);
   text('HOME', Math.round(px(world.homeBase.x + 6, world.homeBase.y + 6)) + 5, Math.round(py(world.homeBase.x + 6, world.homeBase.y + 6)) - 5, 'cyan');
-  world.bases.forEach((b, bi) => mark(b.x + 6, b.y + 6, baseAlive(bi) ? '#f04838' : '#5a4a44', 2));
+  world.bases.forEach((b, bi) => {
+    const mine = campaign && campaign.built.includes(bi);
+    mark(b.x + 6, b.y + 6, baseAlive(bi) ? '#f04838' : mine ? '#70a8e8' : '#5a4a44', 2);
+    if (mine) text('BASE', Math.round(px(b.x + 6, b.y + 6)) + 5, Math.round(py(b.x + 6, b.y + 6)) - 5, 'cyan');
+  });
   for (const e of enemies) if (e.alive && e.type === 'tank' && e.base < 0) { const ex = Math.round(mapX(e.x, e.y)), ey = Math.round(mapY(e.x, e.y)); if (discovered[ey * SIZE + ex]) mark(ex, ey, '#f09050', 1); }
   for (const p of pickups) if (!p.taken) { const ex = Math.round(mapX(p.x, p.y)), ey = Math.round(mapY(p.x, p.y)); if (discovered[ey * SIZE + ex]) mark(ex, ey, { fuel: '#e0b040', ammo: '#b8d070', armor: '#d8e4f0' }[p.type], 0); }
   if (Math.floor(performance.now() / 300) % 2) mark(mapX(heli.x, heli.y), mapY(heli.x, heli.y), '#ffffff', 2);
@@ -3661,7 +3757,7 @@ function openMenu() {
   if (titleOpen) return;
   keys.clear(); weaponDown.fill(false);
   const body = $('menu-body');
-  const where = campaign ? 'MAP ' + campaign.id + ': ' + campaign.spec.name + (campaign.won ? ' (CLEARED)' : ' · ' + enemyLeft() + ' ENEMY LEFT') : currentPlace ? currentPlace.name : 'FREE PLAY';
+  const where = campaign ? 'MAP ' + campaign.id + ': ' + campaign.spec.name + (campaign.won ? ' (CLEARED)' : ' · ' + world.bases.filter((_, bi) => baseAlive(bi)).length + ' ENEMY BASES LEFT') : currentPlace ? currentPlace.name : 'FREE PLAY';
   body.innerHTML = '<p>' + where + '</p>' +
     '<button id="m-resume">RESUME</button><button id="m-maps">CAMPAIGN MAPS</button>' +
     '<button id="m-multi">' + (role === 'solo' ? 'PLAY TOGETHER' : NET.connected ? 'TWO PLAYERS: LINKED' : 'TWO PLAYERS: NO LINK') + '</button>' +
