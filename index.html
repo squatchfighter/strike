@@ -58,8 +58,12 @@
   #camp-close { float: right; margin: 0 !important; padding: 2px 9px !important; }
   #hud { position: fixed; left: 0; top: 0; pointer-events: none; z-index: 2; }
   #menu .box { width: min(92vw, 380px); text-align: center; }
-  body.keys button[data-hk] { position: relative; }
-  body.keys button[data-hk]::after { content: attr(data-hk); position: absolute; bottom: 3px; right: 4px; font-size: 11px; line-height: 1; letter-spacing: 0; padding: 1px 3px; border: 1px solid rgba(255,240,160,0.55); border-radius: 2px; color: #fff0a0; pointer-events: none; }
+  /* menu hot keys: a small key in a gutter of its own at the right, so it never sits on the label */
+  body.keys button[data-hk] { position: relative; padding-right: 26px !important; }
+  body.keys #menu > .box > #menu-body > button[data-hk] { padding-left: 26px; }
+  body.keys #title button[data-hk] { padding-left: 6px; padding-right: 18px !important; white-space: nowrap; }
+  body.keys #title button[data-hk]::after { right: 3px; }
+  body.keys button[data-hk]::after { content: attr(data-hk); position: absolute; top: 50%; right: 6px; transform: translateY(-50%); font-size: 10px; line-height: 1; letter-spacing: 0; padding: 2px 3px; border-radius: 2px; background: rgba(0,0,0,0.35); color: #c8c090; pointer-events: none; }
   #menu button { display: block; width: 100%; margin: 7px 0 0; padding: 11px 14px; font-size: 15px; }
   #menu.base .box { width: min(96vw, 640px); text-align: left; } #menu.base #menu-body { grid-template-columns: 1fr; } #menu.base #menu-body > * { grid-column: 1 / -1; }
   #menu.base h2 { text-align: center; } #menu.base #menu-body p { margin: 6px 0 4px; }
