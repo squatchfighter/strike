@@ -1005,6 +1005,7 @@ function interactHint(pi) {
   const pl = players[pi], h = helis[pi];
   if (pl.dead) return '';
   if (pl.gar >= 0) return 'LEAVE BUILDING';
+  if (pl.landing) return 'LANDING...';
   const bs = typeof buildableAt === 'function' && Math.hypot(h.vx, h.vy) < 150 ? buildableAt(pi) : -1;
   if (bs >= 0) return 'BUILD BASE HERE';
   if (bs === -2) return 'CANNOT BUILD: ENEMY ON SITE';
@@ -1030,11 +1031,21 @@ function nearestVehicle(x, y) {
 function interact(pi) {
   if (!authority()) { netSend({ t: 'act' }); return; }
   const pl = players[pi], h = helis[pi], hint = interactHint(pi);
-  if (!hint || hint.startsWith('SLOW') || hint.startsWith('CANNOT')) { if (hint) sayTo(pi, hint, 1.5); return; }
+  if (!hint || hint.startsWith('SLOW') || hint.startsWith('CANNOT') || hint.startsWith('LANDING')) { if (hint) sayTo(pi, hint, 1.5); return; }
   if (hint === 'BUILD BASE HERE') { buildFriendlyBase(buildableAt(pi), { vehicles: true, by: seatOf(pi) }); return; }
   if (hint === 'LEAVE BUILDING') { playerLeave(pi); return; }
   if (hint === 'ENTER BUILDING') { playerEnter(pi, playerBuilding(pi)); return; }
-  if (pl.kind !== 'foot') {                              // leave the vehicle where it is and step out beside it
+  if (pl.kind !== 'foot' && veh(pi).air && !pl.landing) {   // helicopters set down first; you get out once on the ground
+    pl.landing = true; sayTo(pi, 'LANDING', 1.5);
+    return;
+  }
+  if (pl.kind !== 'foot') exitVehicle(pi);
+  else boardVehicle(pi);
+}
+function exitVehicle(pi) {                               // leave the vehicle where it is and step out beside it
+  const pl = players[pi], h = helis[pi];
+  pl.landing = false;
+  {
     const v = vehicles[pl.vid];
     v.armor = pl.armor; v.fuel = pl.fuel; v.ammo = pl.ammo.map(Math.floor); v.by = -1; v.x = h.x; v.y = h.y; v.h = h.heading; v.vx = v.vy = 0;
     let ox = 0, oy = 0;
@@ -1044,7 +1055,11 @@ function interact(pi) {
     }
     setPlayerKind(pi, 'foot', -1, h.x + ox, h.y + oy, h.heading);
     Object.assign(pl, { armor: pl.footArmor, fuel: PLAYER_MAX.fuel, ammo: fullAmmo('foot', pi) });
-  } else {
+  }
+}
+function boardVehicle(pi) {
+  const pl = players[pi], h = helis[pi];
+  {
     const v = nearestVehicle(h.x, h.y);
     pl.footArmor = pl.armor;
     v.by = pi;
@@ -1055,7 +1070,7 @@ function interact(pi) {
 }
 function setPlayerKind(pi, kind, vid, x, y, heading) {
   const pl = players[pi], h = helis[pi];
-  pl.kind = kind; pl.vid = vid; pl.lock = pl.inLine = null; pl.cool = [0.3, 0.3, 0.3]; pl.gar = -1;
+  pl.kind = kind; pl.vid = vid; pl.lock = pl.inLine = null; pl.cool = [0.3, 0.3, 0.3]; pl.gar = -1; pl.landing = false;
   h.x = x; h.y = y; h.gx = x; h.gy = y * 2; h.vx = h.vy = 0; h.heading = heading; h.tx = undefined;
   if (pi === me) snapCamera();
   if (role === 'host') { netSend({ t: 'veh', pi, kind, vid, x: Math.round(x), y: Math.round(y), h: +heading.toFixed(2) }); pl.holdUntil = time + 0.5; }
@@ -1069,8 +1084,9 @@ function updateVehicles(dt) {
       if (v.kind === 'tank') { const lk = players[v.by].lock; v.th = rotateToward(v.th, lk ? gangle(v.x, v.y, lk.x, lk.y) : v.h, 2.6 * dt); }
     }
     if (VEH[v.kind].air) {
-      const want = v.by >= 0 ? HELI_Z : 0;
-      v.alt += Math.max(-dt * 42, Math.min(dt * 42, want - v.alt));
+      const landing = v.by >= 0 && players[v.by].landing, want = v.by >= 0 && !landing ? HELI_Z : 0, rate = landing ? 28 : 42;
+      v.alt += Math.max(-dt * rate, Math.min(dt * rate, want - v.alt));
+      if (landing && v.alt <= 0.5) exitVehicle(v.by);       // touched down: now he climbs out
     }
   }
 }
@@ -1286,7 +1302,7 @@ function hurt(pi, dmg, from) {
 }
 function die(pi, why) {
   const pl = players[pi], h = helis[pi];
-  pl.armor = Math.max(0, pl.armor); pl.dead = 3.2; pl.lock = pl.inLine = null; pl.gar = -1;
+  pl.armor = Math.max(0, pl.armor); pl.dead = 3.2; pl.lock = pl.inLine = null; pl.gar = -1; pl.landing = false;
   if (pl.vid >= 0) {
     const v = vehicles[pl.vid];
     v.x = h.x; v.y = h.y; v.h = h.heading;
@@ -1708,7 +1724,7 @@ function guestUpdate(dt) {
     if (v.by === me) { v.x = heli.x; v.y = heli.y; v.h = heli.heading; v.vx = heli.vx; v.vy = heli.vy; }
     else if (v.by >= 0) { const o2 = helis[v.by]; v.x = o2.x; v.y = o2.y; v.h = o2.heading; v.vx = o2.vx; v.vy = o2.vy; }
     if (v.kind === 'tank' && v.tth !== undefined) v.th += angDiff(v.th, v.tth) * k;
-    if (VEH[v.kind].air) { const want = v.by >= 0 ? HELI_Z : 0; v.alt += Math.max(-dt * 42, Math.min(dt * 42, want - v.alt)); }
+    if (VEH[v.kind].air) { const landing = v.by >= 0 && players[v.by].landing, want = v.by >= 0 && !landing ? HELI_Z : 0, rate = landing ? 28 : 42; v.alt += Math.max(-dt * rate, Math.min(dt * rate, want - v.alt)); }
   }
 }
 
@@ -1872,7 +1888,7 @@ function drawCombatHud() {
   text(kind.name, 108, 4, 'cyan');
   const hint = interactHint(me);                          // the one action button
   if (hint) {
-    const r = interactRect(), go = !(hint.startsWith('SLOW') || hint.startsWith('CANNOT'));
+    const r = interactRect(), go = !(hint.startsWith('SLOW') || hint.startsWith('CANNOT') || hint.startsWith('LANDING'));
     panel(r);
     if (go) { ctx.fillStyle = 'rgba(240,176,80,0.22)'; ctx.fillRect(r[0] + 1, r[1] + 1, r[2] - 2, r[3] - 2); }
     const label = (MOBILE ? '' : 'E  ') + hint;
@@ -2096,7 +2112,7 @@ function buildSnapshot() {
     if (gdist(cellX(car.cx, car.cy), cellY(car.cx, car.cy), g.x, g.y) > 1500) continue;
     c.push(car.id, car.cx, car.cy, car.nx, car.ny, +car.prog.toFixed(2));
   }
-  const pl = (p) => [r(p.armor), +p.fuel.toFixed(1), Math.floor(p.ammo[0]), Math.floor(p.ammo[1]), Math.floor(p.ammo[2]), p.score, +p.dead.toFixed(2), p.kind, p.vid, p.inf, p.gar >= 0 ? p.gar : -1, credits(players.indexOf(p)), p.order || 'FOLLOW', seatOf(players.indexOf(p))];
+  const pl = (p) => [r(p.armor), +p.fuel.toFixed(1), Math.floor(p.ammo[0]), Math.floor(p.ammo[1]), Math.floor(p.ammo[2]), p.score, +p.dead.toFixed(2), p.kind, p.vid, p.inf, p.gar >= 0 ? p.gar : -1, credits(players.indexOf(p)), p.order || 'FOLLOW', seatOf(players.indexOf(p)), p.landing ? 1 : 0];
   const v = [];
   for (const ve of vehicles) {
     if (!ve || ve.gone || (ve.by < 0 && gdist(ve.x, ve.y, g.x, g.y) > 1900)) continue;
@@ -2236,6 +2252,7 @@ function netMessage(m) {
         if (pi === me && a[0] < pl.armor - 0.5) { pl.hitFlash = 0.14; shake = Math.max(shake, 3); }
         pl.armor = a[0]; pl.fuel = a[1]; pl.ammo = [a[2], a[3], a[4]]; pl.score = a[5]; pl.dead = a[6]; pl.kind = a[7]; pl.vid = a[8]; pl.inf = a[9] || 'rifle';
         if (a[13] !== undefined) pl.seat = a[13];
+        pl.landing = !!a[14];
         if (a[11] !== undefined) { const k = players.indexOf(pl); if (campaign) { if (!campaign.credits) campaign.credits = [0, 0]; campaign.credits[seatOf(k)] = a[11]; } else pl.credits = a[11]; pl.order = a[12]; }
         if (a[10] !== undefined) { if (a[10] >= 0 && pl.gar !== a[10] && pl === player) { const bp = bpos(a[10]); heli.x = bp.x; heli.y = bp.y; heli.gx = bp.x; heli.gy = bp.y * 2; } pl.gar = a[10]; }
       }
@@ -4309,7 +4326,8 @@ function audioUnlock() {
     const comp = c.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 5; comp.attack.value = 0.003; comp.release.value = 0.25;
     SND.master.connect(comp); comp.connect(c.destination);
     SND.sfx = c.createGain(); SND.sfx.gain.value = 0.85; SND.sfx.connect(SND.master);
-    SND.music = c.createGain(); SND.music.gain.value = SND.musicOn ? 0.32 : 0; SND.music.connect(SND.master);
+    SND.music = c.createGain(); SND.music.gain.value = SND.musicOn ? 0.32 : 0;
+    const dc = c.createBiquadFilter(); dc.type = 'highpass'; dc.frequency.value = 28; SND.music.connect(dc); dc.connect(SND.master);
     const len = c.sampleRate * 2;
     SND.noise = c.createBuffer(1, len, c.sampleRate);
     SND.brown = c.createBuffer(1, len, c.sampleRate);
@@ -4491,9 +4509,16 @@ function soundTick(dt) {
 }
 
 // --- music ------------------------------------------------------------------------------------------------------------
-// D minor, 104 bpm, 16 steps a bar, four-bar progression Dm - Bb - C - Am. Battle intensity (0..1) follows the fighting.
-const MUS = { step: 0, next: 0, timer: 0, heat: 0, bar: 0 };
-const CHORDS = [[38, 41, 45], [34, 38, 41], [36, 40, 43], [33, 36, 40]];   // MIDI roots of each bar's chord (low)
+// Original music in the spirit of mid-90s industrial RTS soundtracks: a drum machine that hits hard, palm-muted
+// distorted guitar riffs (power chords through a waveshaper and a speaker-cabinet filter), a growling synth bass,
+// metal clangs and synth stabs. E minor, 126 bpm, 16 steps a bar, 4-bar loops: E5 - E5 - C5 - D5.
+// Battle intensity (0..1) follows the fighting near you: more guitar, double kicks, clangs and stabs as it heats up.
+const MUS = { step: 0, next: 0, timer: 0, heat: 0, shaper: null };
+const BPM = 126;
+const ROOTS = [40, 40, 36, 38];                         // E2, E2, C2, D2
+// Riff: per step, -1 = rest, else semitones above the bar's root; accents (long, open) marked by + 0.5.
+const RIFF = [0, -1, 0, 0, -1, 0, 3.5, -1, 0, -1, 0, 5.5, -1, 0, 7, 5.5];
+const TITLE_RIFF = [0.5, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1];
 const midi = (n) => 440 * Math.pow(2, (n - 69) / 12);
 function musicStart() {
   if (MUS.timer) return;
@@ -4504,49 +4529,101 @@ function musicHeat() {                                  // how much is going on 
   if (titleOpen || !world) return 0;
   let n = 0;
   for (const e of enemies) if (e.alive && e.engaged && !(e.side >= 0) && gdist(e.x, e.y, heli.x, heli.y) < 900) n++;
-  return Math.min(1, n / 6);
+  return Math.min(1, 0.25 + n / 6);
 }
 function musicSchedule() {
   if (!SND.ctx || SND.ctx.state !== 'running') return;
-  const spb = 60 / 104 / 4, c = SND.ctx;
+  const spb = 60 / BPM / 4, c = SND.ctx;
   MUS.heat += (musicHeat() - MUS.heat) * 0.02;
   while (MUS.next < c.currentTime + 0.12) {
     playStep(MUS.step, MUS.next, spb);
     MUS.next += spb; MUS.step = (MUS.step + 1) % 64;
   }
 }
-function mnote(t, freq, dur, { type = 'sawtooth', peak = 0.2, cutoff = 900, detune = 0, attack = 0.01 } = {}) {
+function distCurve() {                                  // hard-ish clipping: the fuzz on the guitars
+  if (MUS.shaper) return MUS.shaper;
+  const n = 1025, curve = new Float32Array(n), k = 60;            // odd length: silence in, silence out
+  for (let i = 0; i < n; i++) { const x = i * 2 / (n - 1) - 1; curve[i] = (1 + k) * x / (1 + k * Math.abs(x)); }
+  return (MUS.shaper = curve);
+}
+const busOut = (node) => node.connect(SND.music);
+// A power chord (root, fifth, octave) through fuzz and a cabinet: chug (short, muted) or open (ringing).
+function guitar(t, root, dur, peak, open) {
+  const c = SND.ctx, mix = c.createGain(), sh = c.createWaveShaper(), cab = c.createBiquadFilter(), hp = c.createBiquadFilter(), mid = c.createBiquadFilter(), g = c.createGain();
+  sh.curve = distCurve(); sh.oversample = '2x';
+  cab.type = 'lowpass'; cab.frequency.value = open ? 3200 : 1700; cab.Q.value = 0.9;
+  mid.type = 'peaking'; mid.frequency.value = 900; mid.gain.value = 4;
+  hp.type = 'highpass'; hp.frequency.value = 90;
+  mix.gain.value = 0.35;
+  const oscs = [];
+  for (const [semi, det, type] of [[0, -7, 'sawtooth'], [0, 7, 'sawtooth'], [7, -4, 'sawtooth'], [12, 3, 'square']]) {
+    const o = c.createOscillator(); o.type = type; o.frequency.value = midi(root + semi); o.detune.value = det;
+    o.connect(mix); oscs.push(o);
+  }
+  mix.connect(sh); sh.connect(mid); mid.connect(cab); cab.connect(hp); hp.connect(g); busOut(g);
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + 0.005);
+  g.gain.setValueAtTime(peak, t + dur * (open ? 0.5 : 0.25)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  for (const o of oscs) { o.start(t); o.stop(t + dur + 0.05); }
+}
+function mnote(t, freq, dur, { type = 'sawtooth', peak = 0.2, cutoff = 900, detune = 0, attack = 0.01, sweep = 0 } = {}) {
   const c = SND.ctx, o = c.createOscillator(), f = c.createBiquadFilter(), g = c.createGain();
-  o.type = type; o.frequency.value = freq; o.detune.value = detune; f.type = 'lowpass'; f.frequency.value = cutoff;
-  o.connect(f); f.connect(g); g.connect(SND.music);
+  o.type = type; o.frequency.value = freq; o.detune.value = detune; f.type = 'lowpass'; f.frequency.setValueAtTime(cutoff, t);
+  if (sweep) f.frequency.exponentialRampToValueAtTime(sweep, t + dur);
+  o.connect(f); f.connect(g); busOut(g);
   g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   o.start(t); o.stop(t + dur + 0.05);
 }
-function mnoise(t, dur, type, freq, peak, brown) {
+function mnoise(t, dur, type, freq, peak, brown, q) {
   const c = SND.ctx, s = noiseSrc(brown), f = c.createBiquadFilter(), g = c.createGain();
-  f.type = type; f.frequency.value = freq; s.connect(f); f.connect(g); g.connect(SND.music);
+  f.type = type; f.frequency.value = freq; f.Q.value = q || 0.8; s.connect(f); f.connect(g); busOut(g);
   g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   s.start(t, Math.random()); s.stop(t + dur + 0.05);
 }
-function kick(t, peak) { const c = SND.ctx, o = c.createOscillator(), g = c.createGain(); o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.18); g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3); o.connect(g); g.connect(SND.music); o.start(t); o.stop(t + 0.32); }
+function kick(t, peak) {                                 // drum-machine kick with a beater click
+  const c = SND.ctx, o = c.createOscillator(), g = c.createGain(), sh = c.createWaveShaper();
+  sh.curve = distCurve();
+  o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
+  g.gain.value = 0; g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+  const pre = c.createGain(); pre.gain.value = 0.6;
+  o.connect(pre); pre.connect(sh); sh.connect(g); busOut(g); o.start(t); o.stop(t + 0.34);
+  mnoise(t, 0.02, 'highpass', 3000, peak * 0.25);
+}
+function snare(t, peak) {                                // crack, body and a gated tail
+  mnoise(t, 0.22, 'bandpass', 2200, peak * 0.9, false, 0.6);
+  mnoise(t, 0.09, 'highpass', 5000, peak * 0.4);
+  mnote(t, 185, 0.12, { type: 'triangle', peak: peak * 0.5, cutoff: 3000 });
+  mnote(t, 330, 0.06, { type: 'triangle', peak: peak * 0.25, cutoff: 3000 });
+}
+function clang(t, peak) {                                // a struck sheet of metal: inharmonic partials ringing out
+  for (const [f, d] of [[547, 0.9], [823, 0.7], [1131, 0.55], [1567, 0.4], [2093, 0.3]]) mnote(t, f, d, { type: 'square', peak: peak * 0.12, cutoff: 5000, attack: 0.002 });
+  mnoise(t, 0.05, 'highpass', 4000, peak * 0.3);
+}
 function playStep(step, t, spb) {
-  const bar = (step / 16) | 0, s = step % 16, ch = CHORDS[bar], title = titleOpen, heat = title ? 0 : MUS.heat;
-  // pad: the chord, every bar, long and dark
-  if (s === 0) for (const n of ch) { mnote(t, midi(n + 12), spb * 16, { peak: 0.05, cutoff: 700 + heat * 600, detune: -8, attack: 0.4 }); mnote(t, midi(n + 12), spb * 16, { peak: 0.05, cutoff: 700, detune: 9, attack: 0.4 }); }
-  if (title) {                                          // title: a slow pulse and a lonely bell
-    if (s === 0 || s === 10) kick(t, 0.5);
-    if (s === 0 && bar % 2 === 0) mnote(t, midi(ch[0] + 36), 1.6, { type: 'sine', peak: 0.06, cutoff: 4000 });
-    if (s === 8) mnote(t, midi(ch[0]), spb * 6, { peak: 0.16, cutoff: 300 });
+  const bar = (step / 16) | 0, s = step % 16, root = ROOTS[bar], heat = titleOpen ? 0 : MUS.heat;
+  if (titleOpen) {                                        // title: a grim intro, slow and heavy
+    if (s === 0) { guitar(t, root, spb * 15, 0.16, true); mnote(t, midi(root - 12), spb * 16, { type: 'sawtooth', peak: 0.14, cutoff: 160 }); }
+    if (s === 0 || s === 6) kick(t, 0.7);
+    if (s === 8) snare(t, 0.35);
+    if (s === 12 && bar % 2 === 1) clang(t, 0.5);
+    if (s === 0 && bar === 0) mnote(t, midi(root + 24), spb * 16, { type: 'sawtooth', peak: 0.05, cutoff: 3000, sweep: 400, attack: 0.3 });
     return;
   }
-  // bass: driving eighths on the root, with an octave jump
-  if (s % 2 === 0) mnote(t, midi(ch[0] + (s % 8 === 6 ? 12 : 0)), spb * 1.8, { peak: 0.16 + heat * 0.06, cutoff: 380 + heat * 400 });
-  // drums
-  if (s === 0 || s === 8 || (s === 10 && heat > 0.3) || (s === 14 && heat > 0.7)) kick(t, 0.75);
-  if (s === 4 || s === 12) { mnoise(t, 0.18, 'bandpass', 1800, 0.35); mnote(t, 190, 0.1, { type: 'triangle', peak: 0.15, cutoff: 2000 }); }
-  if (s % 2 === 0 || heat > 0.5) mnoise(t, 0.04, 'highpass', 7000, s % 4 === 2 ? 0.12 : 0.06);
-  // lead: a minor arpeggio when the fighting heats up
-  if (heat > 0.35 && s % 3 === 0) { const arp = [ch[0], ch[1], ch[2], ch[1] + 12][(s / 3) % 4]; mnote(t, midi(arp + 24), spb * 2.5, { type: 'square', peak: 0.04 * heat, cutoff: 2400 }); }
+  // drums: four on the floor feel with syncopation; more kick, hats and clangs as it heats up
+  if (s === 0 || s === 8 || s === 6 || (s === 10 && heat > 0.4) || (s === 14 && heat > 0.65) || (s === 3 && heat > 0.85)) kick(t, 0.85);
+  if (s === 4 || s === 12) snare(t, 0.55);
+  if (s === 15 && heat > 0.75) snare(t, 0.25);
+  if (s % 2 === 0 || heat > 0.55) mnoise(t, s % 4 === 2 ? 0.08 : 0.03, 'highpass', 8000, s % 4 === 2 ? 0.14 : 0.07);
+  if (s === 12 && bar === 3 && heat > 0.3) clang(t, 0.6);
+  // synth bass: growling square an octave under the riff, on every eighth
+  if (s % 2 === 0) mnote(t, midi(root - 12), spb * 1.9, { type: 'square', peak: 0.13, cutoff: 260 + heat * 300 });
+  // guitar riff: chugs, with open accents; sparse when it's quiet
+  const r = RIFF[s];
+  if (r >= 0 && (heat > 0.45 || s % 4 === 0)) {
+    const open = r % 1 !== 0, semi = Math.floor(r);
+    guitar(t, root + semi, open ? spb * 3 : spb * 0.9, open ? 0.17 : 0.13 + heat * 0.04, open);
+  }
+  // synth stab at the top of the loop when the fighting is fierce
+  if (s === 0 && bar % 2 === 0 && heat > 0.6) for (const semi of [12, 19, 24]) mnote(t, midi(root + semi), 0.5, { type: 'sawtooth', peak: 0.05, cutoff: 3500, sweep: 500, attack: 0.005 });
 }
 
 // ---------------------------------------------------------------------------
@@ -4815,7 +4892,7 @@ function rotateToward(from, to, maxStep) {
 }
 function step(dt) {
   let [sx, sy] = moveVector();
-  if (player.dead > 0) sx = sy = 0;                  // no control while shot down
+  if (player.dead > 0 || player.landing) sx = sy = 0;     // no control while shot down, or while setting down
   const mag = Math.hypot(sx, sy);
   if (mag > 0) hasFlown = true;
   const kind = VEH[player.kind], wheeled = player.kind === 'tank' || player.kind === 'jeep';
