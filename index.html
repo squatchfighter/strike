@@ -2295,6 +2295,7 @@ function glideTo(h, a) {                              // remote helicopter: reme
 }
 function netMessage(m) {
   if (role === 'host' || (role === 'solo' && m.t === 'in')) {
+    if (m.t === 'hold') { setHold(m.on, false, m.by); return; }
     if (m.t === 'act') { interact(1); return; }
     if (m.t === 'kit') { setKit(1, m.k); return; }
     if (m.t === 'buy') { buy(1, m.id); return; }
@@ -2472,6 +2473,7 @@ function netMessage(m) {
     case 'pick': if (pickups[m.k]) pickups[m.k].taken = true; break;
     case 'car': cars = cars.filter((c) => c.id !== m.id); break;
     case 'say': sayLocal(m.text, m.secs); break;
+    case 'hold': setHold(m.on, false, m.by); break;
   }
 }
 
@@ -5382,6 +5384,16 @@ const interactRect = () => [Math.round(UW / 2 - 66), UH - 30, 132, 20];
 const ordersLabel = () => (MOBILE ? '' : 'R ') + myUnits(me).length + ' UNITS: ' + (player.order || 'FOLLOW');
 const ordersRect = () => [3, 112, ordersLabel().length * FONT_W + 10, FONT_H + 6];
 const baseRect = () => [UW - 124, 3, 28, 24];
+const pauseRect = () => [UW - 155, 3, 28, 24];
+// Pause (P, the Pause key, or the pause button): stops everything, for both players when linked. Either player can
+// pause or resume; any key or a tap resumes.
+let hold = null;                                     // null, or { by: name of who paused }
+function setHold(on, send, by) {
+  hold = on ? { by: by || '' } : null;
+  keys.clear(); weaponDown.fill(false); buttonTouch.fill(-1);
+  if (send && role !== 'solo' && NET.connected) netSend({ t: 'hold', on: !!on, by: by || '' });
+}
+function togglePause() { if (titleOpen) return; setHold(!hold, true, hold || role === 'solo' ? '' : (myName() || (me ? 'PLAYER 2' : 'PLAYER 1'))); }
 const inRect = (r, x, y) => x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3];
 
 function pointerPos(e) {
@@ -5398,7 +5410,9 @@ canvas.addEventListener('pointerdown', (e) => {
   try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* not capturable */ }
   const [x, y] = pointerPos(e);
   if (titleOpen) return;
+  if (hold) { togglePause(); return; }                       // a tap anywhere resumes
   if (mapOpen) { toggleMap(); return; }
+  if (inRect(pauseRect(), x, y)) { togglePause(); return; }
   if (inRect(menuRect(), x, y)) { openMenu(); return; }
   if (inRect(mapRect(), x, y) || inRect(miniRect(), x, y)) { toggleMap(); return; }
   if (inRect(zoomRect(), x, y)) { toggleZoom(); return; }
@@ -5481,6 +5495,8 @@ window.addEventListener('keydown', (e) => {
   if (MOVE_KEYS.includes(e.code) || e.code === 'Space' || e.code === 'Tab') e.preventDefault();
   if (e.repeat) return;
   if (titleOpen) return;
+  if (hold) { if (!['ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight'].includes(e.code)) togglePause(); return; }   // any key resumes
+  if (e.code === 'KeyP' || e.code === 'Pause') { togglePause(); return; }
   if (e.code === 'Tab' || (mapOpen && e.code === 'Escape')) { toggleMap(); return; }
   if (mapOpen) return;
   if (e.code === 'Escape') { if ($('menu').hidden) openMenu(); else closeMenu(); return; }
@@ -5833,7 +5849,18 @@ function drawHud() {
   iconButton(mapRect(), 1);
   iconButton(menuRect(), 0);
   iconButton(baseRect(), 4);
+  panel(pauseRect());                                   // pause icon: two bars (a play triangle while paused)
+  { const r = pauseRect(), cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2; ctx.fillStyle = '#e8ecd8';
+    if (hold) { ctx.beginPath(); ctx.moveTo(cx - 4, cy - 6); ctx.lineTo(cx + 6, cy); ctx.lineTo(cx - 4, cy + 6); ctx.closePath(); ctx.fill(); }
+    else { ctx.fillRect(cx - 5, cy - 6, 3, 12); ctx.fillRect(cx + 2, cy - 6, 3, 12); } }
   drawCombatHud();
+  if (hold) {                                           // the pause screen
+    ctx.fillStyle = 'rgba(8,10,8,0.55)'; ctx.fillRect(0, 0, UW, UH);
+    ctx.save(); ctx.scale(3, 3); text('PAUSED', Math.round((UW / 3 - 6 * FONT_W) / 2), Math.round(UH / 6 - 14), 'yellow'); ctx.restore();
+    const l2 = (hold.by ? hold.by + ' PAUSED THE GAME' : '') , l3 = (MOBILE ? 'TAP' : 'PRESS ANY KEY OR CLICK') + ' TO CARRY ON';
+    if (l2) text(l2, Math.round((UW - l2.length * FONT_W) / 2), Math.round(UH / 2 + 8));
+    text(l3, Math.round((UW - l3.length * FONT_W) / 2), Math.round(UH / 2 + 22));
+  }
 
   if (!hasFlown) {                       // shown until the first movement input
     const focused = document.hasFocus();
@@ -6000,7 +6027,7 @@ function frame(now) {
     const hb = world.homeBase, cx0 = cellX(hb.x + 6, hb.y + 6), cy0 = cellY(hb.x + 6, hb.y + 6), t = time * 0.045;
     cam.x = cx0 + Math.cos(t) * 900; cam.y = cy0 + Math.sin(t) * 420;
   }
-  if ((mapOpen || paused()) && role === 'solo') acc = 0;   // paused while the map or a menu is up (never in a shared game)
+  if (((mapOpen || paused()) && role === 'solo') || hold) acc = 0;   // paused: the pause button (everyone), or the map or a menu (solo only)
   while (acc >= STEP) { step(STEP); time += STEP; acc -= STEP; }
   draw(dt);
   try { soundTick(dt); } catch (err) { /* sound must never stop the game */ }
@@ -6008,7 +6035,7 @@ function frame(now) {
 }
 
 // --- title screen and pause menu (HTML over the canvas) -------------------------------------------------
-const paused = () => titleOpen || !$('menu').hidden || !$('camp').hidden || !$('place').hidden || !$('mp').hidden;
+const paused = () => !!hold || titleOpen || !$('menu').hidden || !$('camp').hidden || !$('place').hidden || !$('mp').hidden;
 function openTitle() {
   titleOpen = true; keys.clear();
   const el = $('title'), logo = $('title-logo');
@@ -6026,7 +6053,7 @@ function openTitle() {
   $('t-mode').onclick = () => { cycleModePref(); modeLabel(); };
   $('t-who').innerHTML = myName() ? crewLabel(currentCrew()) + '<small>PLAYER / CAMPAIGN</small>' : 'WHO\'S PLAYING?<small>NAME YOUR CAMPAIGN</small>';
   $('t-who').onclick = () => { $('camp').hidden = false; whoScreen(() => { $('camp').hidden = true; openTitle(); }); };
-  $('t-foot').textContent = MOBILE ? 'LEFT THUMB FLIES · A B C FIRE · TAP THE PROMPT TO LAND OR GET IN' : 'WASD FLY · J K L FIRE · E LAND / GET IN · Q BASE · R ORDERS · TAB MAP · Z ZOOM · ESC MENU';
+  $('t-foot').textContent = MOBILE ? 'LEFT THUMB FLIES · A B C FIRE · TAP THE PROMPT TO LAND OR GET IN' : 'WASD FLY · J K L FIRE · E LAND / GET IN · Q BASE · R ORDERS · TAB MAP · Z ZOOM · P PAUSE · ESC MENU';
   el.hidden = false;
   const go = (fn) => () => { closeTitle(); fn(); };
   $('t-continue').onclick = go(() => { openMaps(); pickMap(id, $('camp-body')); snapCamera(); });
