@@ -2067,7 +2067,7 @@ function netLost() {
 function netHello() {                                 // everything a (re)joining player needs to match our world
   const aliveCars = new Set(cars.map((c) => c.id));
   netSend({
-    t: 'hello', seed, place: currentPlace, tl: targetsLeft,
+    t: 'hello', seed, place: currentPlace, tl: targetsLeft, who: myName(), crew: currentCrew(),
     camp: campaign ? { id: campaign.id, elapsed: campaign.elapsed, wave: campaign.waveClock, waves: campaign.waves, won: campaign.won, built: campaign.built, owners: campaign.owners, fo: packForts(), seats: campaign.seats, cr: campaign.credits, mode: campaign.mode, run: campaign.run, nests: nests.map(packNest) } : null,
     ex: zc() ? enemies.slice(zc().nSpawn).map((e) => packExtra(e)) : [], prog: loadProgress(),
     zfree: !campaign && freeZ ? { mode: freeZ.mode, nests: nests.map(packNest), n: freeZ.nSpawn } : null,
@@ -2112,8 +2112,16 @@ function netMessage(m) {
     if (m.t === 'buy') { buy(1, m.id); return; }
     if (m.t === 'order') { setOrders(1, m.o); return; }
     if (m.t === 'give') { giveUnits(1, m.type); return; }
-    if (m.t === 'who') {                              // player 2's name: give them their seat and send them home
+    if (m.t === 'who') {                              // player 2's name: switch to the pair's campaign, then seat them
       players[1].who = m.name || '';
+      const tc = crewOf([myName(), players[1].who]);
+      if (currentCrew() !== tc) {
+        setCrew(tc);
+        if (m.prog) lsSet(progKey(), mergeProgress(loadProgress(), m.prog));
+        say('CAMPAIGN: ' + crewLabel(tc), 5);
+        if (campaign) startMap(loadProgress().last || 1); else netHello();
+        return;
+      }
       const s = takeSeat(1, players[1].who);
       if (campaign && s === 1 && world.home2) sendHome(1);
       if (campaign) netSend({ t: 'seats', seats: campaign.seats });
@@ -2121,6 +2129,7 @@ function netMessage(m) {
       return;
     }
     if (m.t === 'merge') {                            // the guest's own save of this map, and its progress: fold them in
+      if (m.crew !== currentCrew()) return;
       if (m.prog) saveProgress(mergeProgress(loadProgress(), m.prog));
       if (m.st && applyDelta(m.st)) { say('MERGED PLAYER 2\'S SAVED PROGRESS', 4); autosave(true); }
       const c = cloudCfg();                         // player 2 has no cloud save (or another one): hand ours over, once
@@ -2138,6 +2147,12 @@ function netMessage(m) {
   switch (m.t) {
     case 'hello': {
       role = 'guest'; setMe(1);
+      {                                               // the pair's campaign: join it once the host has switched to it
+        const tc = crewOf([m.who, myName()]);
+        NET.synced = m.crew === tc;
+        if (NET.synced && currentCrew() !== tc) setCrew(tc);
+        NET.teamCrew = tc;
+      }
       if (m.place) {                                  // a real place: download the same map, then ask the host for a fresh hello
         const key = JSON.stringify([m.place.lat, m.place.lon, m.place.km, m.place.theme]);
         if (placeCache.key !== key) {
@@ -2172,14 +2187,14 @@ function netMessage(m) {
       m.pl.forEach((a, pi) => { players[pi].kind = a[0]; players[pi].vid = a[1]; });
       targetsLeft = m.tl;
       snapCamera(); reveal(REVEAL_RADIUS);
-      netSend({ t: 'who', name: myName() });
+      netSend({ t: 'who', name: myName(), crew: NET.teamCrew, prog: lsGet('strike.v2.' + NET.teamCrew + '.progress') });
       sayLocal(campaign ? 'LINKED. MAP ' + campaign.id + ': ' + campaign.spec.name : 'LINKED. YOU ARE PLAYER 2', 4);
-      if (campaign) {
+      if (campaign && NET.synced) {
         for (const bi of m.camp && m.camp.built ? m.camp.built : []) buildFriendlyBase(bi, { quiet: true, by: m.camp.owners && m.camp.owners[bi] !== undefined ? m.camp.owners[bi] : 0 });
         if (campaign.won) surrender();
         campaign.zoneHeld = world.bases.map((_, bi) => zoneHeld(bi));
-        if (m.prog) lsSet(PROG_KEY, mergeProgress(loadProgress(), m.prog));
-        netSend({ t: 'merge', st: lsGet(mapKey(campaign.id)), prog: loadProgress(), cloud: cloudCfg() ? cloudCfg().repo : null });
+        if (m.prog) lsSet(progKey(), mergeProgress(loadProgress(), m.prog));
+        netSend({ t: 'merge', crew: currentCrew(), st: lsGet(mapKey(campaign.id)), prog: loadProgress(), cloud: cloudCfg() ? cloudCfg().repo : null });
         autosave(false);
       }
       break;
@@ -2198,7 +2213,7 @@ function netMessage(m) {
       const prog = loadProgress();
       if (!prog.won.includes(m.id)) prog.won.push(m.id);
       prog.unlocked = Math.max(prog.unlocked, Math.min(MAPS.length, m.id + 1)); prog.pct[m.id] = 100;
-      lsSet(PROG_KEY, Object.assign(prog, { t: Date.now() }));
+      lsSet(progKey(), Object.assign(prog, { t: Date.now() }));
       autosave(false);
       break;
     }
@@ -2758,13 +2773,29 @@ ENEMY.gunship = { name: 'GUNSHIP', hp: 160, range: 640, rate: 1.4, dmg: 12, hit:
 
 let campaign = null;          // { id, spec, elapsed, waveClock, waves, won, nSpawn } while a campaign map is being played
 const SAVE_V = 1;
-const mapKey = (id) => 'strike.v1.map.' + id;
-const PROG_KEY = 'strike.v1.progress';
+// --- campaigns belong to a group of names ------------------------------------------------------------------------
+// Every group of players has its own campaign: MIKE on his own, MIKE + JAKE together, JAKE + a friend, each with its
+// own unlocked maps and battles (saved under strike.v2.<crew>.*, and in the cloud under <crew>/). Linking up puts both
+// devices in the pair's campaign; playing alone you pick which of your campaigns to carry on (WHO'S PLAYING screen).
+const CREWS_KEY = 'strike.v2.crews', CREW_LAST = 'strike.v2.crew';
+const cleanName = (n) => String(n || '').toUpperCase().replace(/[^A-Z0-9 _-]/g, '').trim().slice(0, 12) || 'PLAYER';
+const crewOf = (names) => [...new Set(names.map(cleanName))].sort().join('+');
+const crewLabel = (c) => (c.includes('+') ? c.split('+').join(' + ') : c + ' (SOLO)');
+let crew = null;
+function currentCrew() {
+  if (!crew) { const last = lsGet(CREW_LAST), me = cleanName(typeof myName === 'function' ? myName() : ''); crew = last && last.split('+').includes(me) ? last : crewOf([me]); }
+  return crew;
+}
+function setCrew(c) { crew = c; lsSet(CREW_LAST, c); const list = lsGet(CREWS_KEY) || []; if (!list.includes(c)) { list.push(c); lsSet(CREWS_KEY, list); } }
+function myCrews() { const me = cleanName(myName()), list = (lsGet(CREWS_KEY) || []).filter((c) => c.split('+').includes(me)); if (!list.includes(crewOf([me]))) list.unshift(crewOf([me])); return list; }
+const mapKey = (id) => 'strike.v2.' + currentCrew() + '.map.' + id;
+const progKey = () => 'strike.v2.' + currentCrew() + '.progress';
+const cloudName = (n) => currentCrew().replace(/ /g, '_') + '/' + n;
 const lsGet = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (err) { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (err) { /* storage full or blocked */ } };
 
 // --- progress: which maps are unlocked, won, and how far along -------------------------------------------
-function loadProgress() { return Object.assign({ unlocked: 1, won: [], pct: {}, last: 1, t: 0 }, lsGet(PROG_KEY) || {}); }
+function loadProgress() { return Object.assign({ unlocked: 1, won: [], pct: {}, last: 1, t: 0 }, lsGet(progKey()) || {}); }
 function mergeProgress(a, b) {
   if (!a) return b; if (!b) return a;
   const pct = Object.assign({}, a.pct);
@@ -2772,7 +2803,7 @@ function mergeProgress(a, b) {
   const newer = (b.t || 0) > (a.t || 0) ? b : a;
   return { unlocked: Math.max(a.unlocked, b.unlocked), won: [...new Set([...a.won, ...b.won])].sort((x, y) => x - y), pct, last: newer.last, t: Math.max(a.t || 0, b.t || 0) };
 }
-function saveProgress(p) { p.t = Date.now(); lsSet(PROG_KEY, p); cloudQueue('progress', p); }
+function saveProgress(p) { p.t = Date.now(); lsSet(progKey(), p); cloudQueue(cloudName('progress'), p); }
 
 // --- one map's battle state -----------------------------------------------------------------------------------
 function captureState() {
@@ -2838,7 +2869,7 @@ function applyState(st) {
 function applyDelta(st) {
   if (!st || !campaign || st.id !== campaign.id) return 0;
   if ((st.run || 0) !== (campaign.run || 0)) {                // the other player restarted this map (perhaps in another mode)
-    if ((st.t || 0) > campaign.t0) { const id = campaign.id; setTimeout(() => { startMap(id, { replace: st }); say('THE OTHER PLAYER RESTARTED THIS MAP AS ' + MODES[st.mode || 'army'], 5); }, 0); }
+    if ((st.t || 0) > campaign.t0 || (campaign.fresh && campaign.elapsed < 30)) { const id = campaign.id, fresh = campaign.fresh; setTimeout(() => { startMap(id, { replace: st }); say(fresh ? 'LOADED THE SAVED BATTLE' : 'THE OTHER PLAYER RESTARTED THIS MAP AS ' + MODES[st.mode || 'army'], 5); }, 0); return 1; }
     return 0;
   }
   let n = 0;
@@ -2884,6 +2915,7 @@ function startMap(id, opts) {
   if (opts.replace) applyState(opts.replace);
   else if (opts.state) applyState(mergeStates(local, opts.state));
   else if (local) applyState(local);
+  campaign.fresh = !local && !opts.state && !opts.replace && !opts.mode;   // nothing saved here yet: a cloud or partner copy wins
   if (opts.mode || opts.replace) autosave(true);
   campaign.zoneHeld = world.bases.map((_, bi) => zoneHeld(bi));
   if (role !== 'guest') {                          // which seat you sit in, and start at your own home
@@ -3128,12 +3160,13 @@ function updateCampaign(dt) {
 }
 function autosave(important) {
   if (!campaign) return;
+  if (role === 'guest' && !NET.synced) return;      // not in the pair's campaign yet: nothing of ours to save
   campaign.saveClock = 0;
   const st = captureState();
   lsSet(mapKey(campaign.id), st);
   const prog = loadProgress();
-  if (!campaign.won) { prog.pct[campaign.id] = Math.max(prog.pct[campaign.id] || 0, progressPct()); lsSet(PROG_KEY, Object.assign(prog, { t: Date.now() })); }
-  if (role !== 'guest') { cloudQueue('map-' + campaign.id, st, important); if (important) cloudQueue('progress', loadProgress(), true); }
+  if (!campaign.won) { prog.pct[campaign.id] = Math.max(prog.pct[campaign.id] || 0, progressPct()); lsSet(progKey(), Object.assign(prog, { t: Date.now() })); }
+  if (role !== 'guest') { cloudQueue(cloudName('map-' + campaign.id), st, important); if (important) cloudQueue(cloudName('progress'), loadProgress(), true); }
 }
 addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { autosave(true); cloudFlush(true); } });
 addEventListener('pagehide', () => { autosave(true); cloudFlush(true); });
@@ -3147,7 +3180,7 @@ const b64enc = (s) => btoa(unescape(encodeURIComponent(s)));
 const b64dec = (s) => decodeURIComponent(escape(atob(s.replace(/\s/g, ''))));
 async function cloudGet(name) {
   const c = cloudCfg(); if (!c) return null;
-  const r = await fetch('https://api.github.com/repos/' + c.repo + '/contents/' + name + '.json?t=' + Date.now(), { headers: { Authorization: 'Bearer ' + c.token, Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+  const r = await fetch('https://api.github.com/repos/' + c.repo + '/contents/' + name.split('/').map(encodeURIComponent).join('/') + '.json?t=' + Date.now(), { headers: { Authorization: 'Bearer ' + c.token, Accept: 'application/vnd.github+json' }, cache: 'no-store' });
   if (r.status === 404) { cloudState.sha.delete(name); return null; }
   if (!r.ok) throw new Error('GitHub answered ' + r.status);
   const j = await r.json();
@@ -3158,7 +3191,7 @@ async function cloudPut(name, data, keepalive) {
   const c = cloudCfg(); if (!c) return;
   const body = { message: 'save ' + name, content: b64enc(JSON.stringify(data)) };
   const sha = cloudState.sha.get(name); if (sha) body.sha = sha;
-  const r = await fetch('https://api.github.com/repos/' + c.repo + '/contents/' + name + '.json', { method: 'PUT', keepalive: !!keepalive, headers: { Authorization: 'Bearer ' + c.token, Accept: 'application/vnd.github+json' }, body: JSON.stringify(body) });
+  const r = await fetch('https://api.github.com/repos/' + c.repo + '/contents/' + name.split('/').map(encodeURIComponent).join('/') + '.json', { method: 'PUT', keepalive: !!keepalive, headers: { Authorization: 'Bearer ' + c.token, Accept: 'application/vnd.github+json' }, body: JSON.stringify(body) });
   if (r.status === 409 || r.status === 422) return 'conflict';
   if (!r.ok) throw new Error('GitHub answered ' + r.status);
   const j = await r.json();
@@ -3167,7 +3200,7 @@ async function cloudPut(name, data, keepalive) {
 }
 // Save = read what is there, merge ours in, write it back (retry once if someone else wrote in between).
 async function cloudSync(name, data) {
-  const merge = name === 'progress' ? mergeProgress : mergeStates;
+  const merge = name.endsWith('progress') ? mergeProgress : mergeStates;
   for (let tries = 0; tries < 2; tries++) {
     const remote = await cloudGet(name);
     const out = merge(remote, data);
@@ -3198,9 +3231,9 @@ async function cloudFlush(leaving) {
 async function cloudPull(id) {
   if (!cloudCfg()) return;
   try {
-    const prog = await cloudGet('progress');
-    if (prog) lsSet(PROG_KEY, mergeProgress(loadProgress(), prog));
-    const st = await cloudGet('map-' + id);
+    const prog = await cloudGet(cloudName('progress'));
+    if (prog) lsSet(progKey(), mergeProgress(loadProgress(), prog));
+    const st = await cloudGet(cloudName('map-' + id));
     if (st && campaign && campaign.id === id) {
       const n = applyDelta(st);
       if (n) say('LOADED THE LATEST BATTLE FROM THE CLOUD', 4);
@@ -3224,7 +3257,7 @@ function mapsScreen(why) {
     const tag = won ? 'CLEARED' : !open ? 'LOCKED' : pct ? pct + '%' : 'NEW';
     return '<button class="map' + (open ? '' : ' locked') + (cur ? ' cur' : '') + '" data-id="' + m.id + '"' + (open ? '' : ' disabled') + '><span class="n">' + m.id + '</span><b>' + m.name + '</b><span class="tag">' + tag + '</span><br><span class="brief">' + (open ? m.brief : '') + '</span></button>';
   }).join('');
-  const head = why === 'won' ? '<p class="win">MAP CLEARED. ' + (campaign && campaign.id < MAPS.length ? 'Map ' + (campaign.id + 1) + ' is unlocked.' : 'That was the last one. You won the campaign.') + '</p>' : '';
+  const head = '<p class="fine">CAMPAIGN: ' + crewLabel(currentCrew()) + (myName() ? '' : ' · set your name on the title screen (WHO\'S PLAYING)') + '</p>' + (why === 'won' ? '<p class="win">MAP CLEARED. ' + (campaign && campaign.id < MAPS.length ? 'Map ' + (campaign.id + 1) + ' is unlocked.' : 'That was the last one. You won the campaign.') + '</p>' : '');
   const c = cloudCfg();
   const pref = modePref();
   const modes = '<div class="row modes"><span class="lbl">ENEMY</span>' + Object.keys(MODES).map((k) => '<button class="mode' + (k === pref ? ' on' : '') + '" data-mode="' + k + '">' + MODES[k] + '</button>').join('') + '</div>';
@@ -3266,8 +3299,8 @@ function cloudScreen() {
     $('cloud-status').textContent = 'Testing...';
     lsSet(CLOUD_KEY, { repo, token });
     try {
-      await cloudSync('progress', loadProgress());
-      lsSet(PROG_KEY, mergeProgress(loadProgress(), await cloudGet('progress')));
+      await cloudSync(cloudName('progress'), loadProgress());
+      lsSet(progKey(), mergeProgress(loadProgress(), await cloudGet(cloudName('progress'))));
       $('cloud-status').textContent = 'Working. The campaign now saves to ' + repo + '.';
       if (campaign) { cloudPull(campaign.id); autosave(true); }
     } catch (err) {
@@ -4026,15 +4059,27 @@ function nearestArmyFoe(x, y, range) {
   }
   return best;
 }
-// The WHO'S PLAYING screen (title screen): the name this device plays under.
+// The WHO'S PLAYING screen (title screen): the name this device plays under, and which campaign to carry on.
 function whoScreen(done) {
-  const body = $('camp-body');
-  body.innerHTML = '<p>Who plays on this device? Your base, credits and units in each battle go with this name, whoever hosts.</p>' +
-    '<label>NAME<br><input id="who-name" type="text" maxlength="12" value="' + myName() + '" placeholder="MICHAEL" autocomplete="off"></label>' +
-    '<div class="row"><button id="who-ok">SAVE</button><button id="who-back">BACK</button></div>';
-  $('who-ok').onclick = () => { lsSet(WHO_KEY, $('who-name').value.trim().toUpperCase().slice(0, 12)); if (campaign && role !== 'guest' && !players[1].active) { players[0].seat = undefined; const s = takeSeat(0, myName()); if (s === 1 && world.home2) sendHome(0); } done(); };
+  const body = $('camp-body'), cur = currentCrew();
+  const list = myName() ? myCrews().map((c) => '<button class="map' + (c === cur ? ' cur' : '') + '" data-crew="' + c + '"><b>' + crewLabel(c) + '</b><span class="tag">' + (c === cur ? 'PLAYING' : '') + '</span></button>').join('') : '';
+  body.innerHTML = '<p>Who plays on this device? Each group of names has its own campaign: on your own, with Jake, with a friend. Linking up with someone puts you both in your shared campaign.</p>' +
+    '<label>NAME<br><input id="who-name" type="text" maxlength="12" value="' + myName() + '" placeholder="MIKE" autocomplete="off"></label>' +
+    '<div class="row"><button id="who-ok">SAVE NAME</button><button id="who-back">BACK</button></div>' +
+    (list ? '<p>YOUR CAMPAIGNS <span class="fine">(pick one to carry on when you play alone)</span></p><div class="maps">' + list + '</div>' : '');
+  const switchTo = (c) => {
+    setCrew(c);
+    if (role !== 'guest' && !players[1].active && campaign) startMap(loadProgress().last || 1);
+  };
+  $('who-ok').onclick = () => {
+    const n = cleanName($('who-name').value);
+    lsSet(WHO_KEY, n);
+    if (!currentCrew().split('+').includes(n)) switchTo(crewOf([n]));
+    whoScreen(done);
+  };
+  for (const b of body.querySelectorAll('button[data-crew]')) b.onclick = () => { if (players[1].active) return; switchTo(b.dataset.crew); done(); };
   $('who-back').onclick = () => done();
-  setTimeout(() => $('who-name').focus(), 50);
+  if (!myName()) setTimeout(() => $('who-name').focus(), 50);
 }
 
 // ---------------------------------------------------------------------------
@@ -4795,7 +4840,7 @@ function openTitle() {
   const modeLabel = () => { $('t-mode').innerHTML = 'ENEMY: ' + MODES[modePref()].replace('ARMY + ZOMBIES', 'BOTH') + '<small>TAP TO CHANGE</small>'; };
   modeLabel();
   $('t-mode').onclick = () => { cycleModePref(); modeLabel(); };
-  $('t-who').innerHTML = myName() ? 'PLAYER: ' + myName() + '<small>TAP TO CHANGE</small>' : 'WHO\'S PLAYING?<small>KEEPS YOUR BASE YOURS</small>';
+  $('t-who').innerHTML = myName() ? crewLabel(currentCrew()) + '<small>PLAYER / CAMPAIGN</small>' : 'WHO\'S PLAYING?<small>NAME YOUR CAMPAIGN</small>';
   $('t-who').onclick = () => { $('camp').hidden = false; whoScreen(() => { $('camp').hidden = true; openTitle(); }); };
   $('t-foot').textContent = MOBILE ? 'LEFT THUMB FLIES · A B C FIRE · TAP THE PROMPT TO LAND OR GET IN' : 'WASD FLY · J K L FIRE · E LAND / GET IN · Q BASE · R ORDERS · TAB MAP · Z ZOOM · ESC MENU';
   el.hidden = false;
