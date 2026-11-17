@@ -57,6 +57,9 @@
   #menu button { display: block; width: 100%; margin: 7px 0 0; padding: 11px 14px; font-size: 15px; }
   #menu.base .box { width: min(96vw, 640px); text-align: left; } #menu.base #menu-body { grid-template-columns: 1fr; } #menu.base #menu-body > * { grid-column: 1 / -1; }
   #menu.base h2 { text-align: center; } #menu.base #menu-body p { margin: 6px 0 4px; }
+  #menu .snd { display: flex; align-items: center; gap: 10px; margin: 8px 0; grid-column: 1 / -1; }
+  #menu .snd span { width: 6em; text-align: left; color: #a0e0f0; letter-spacing: 1px; } #menu .snd button { margin: 0; flex: 0 0 5em; width: 5em; padding: 6px 4px; }
+  #menu .snd input { flex: 1; accent-color: #c8e070; height: 28px; } #menu .snd input:disabled { opacity: 0.35; } #menu .snd b { width: 2.2em; text-align: right; color: #fff0a0; font-weight: normal; }
   #menu .shop { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
   #menu button.buy { margin: 0; padding: 5px 8px; text-align: left; } #menu button.buy b { color: #a0e0f0; } #menu button.buy i { float: right; font-style: normal; color: #fff0a0; }
   #menu button.buy span { display: block; color: #a8b0a0; font-size: 11px; } #menu button.buy:disabled { opacity: 0.45; }
@@ -4341,20 +4344,23 @@ function towerRoof() {
 //  - Browsers only start sound after a tap or key press; the first one unlocks it. SOUND / MUSIC toggles in the menu.
 // ---------------------------------------------------------------------------
 const SND = { ctx: null, master: null, sfx: null, music: null, noise: null, brown: null, voices: 0, last: {}, on: true, musicOn: true, loops: {}, prev: {} };
-SND.on = lsGet('strike.v1.sound') !== false;
+SND.on = lsGet('strike.v1.sound') !== false;           // effects on/off
 SND.musicOn = lsGet('strike.v1.music') !== false;
+SND.fxVol = lsGet('strike.v1.fxvol') ?? 0.8;            // 0..1 sliders
+SND.musVol = lsGet('strike.v1.musvol') ?? 0.6;
+const fxGain = () => (SND.on ? SND.fxVol * 1.06 : 0), musGain = () => (SND.musicOn ? SND.musVol * 0.53 : 0);
 function audioUnlock() {
   if (!SND.ctx) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     const c = SND.ctx = new AC();
-    SND.master = c.createGain(); SND.master.gain.value = SND.on ? 0.9 : 0;
+    SND.master = c.createGain(); SND.master.gain.value = 0.9;
     const comp = c.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 5; comp.attack.value = 0.003; comp.release.value = 0.25;
     SND.master.connect(comp); comp.connect(c.destination);
-    SND.sfx = c.createGain(); SND.sfx.gain.value = 0.85;
+    SND.sfx = c.createGain(); SND.sfx.gain.value = fxGain();
     const tame = c.createBiquadFilter(); tame.type = 'highshelf'; tame.frequency.value = 3000; tame.gain.value = -9;   // warmer: less fizz up top
     SND.sfx.connect(tame); tame.connect(SND.master);
-    SND.music = c.createGain(); SND.music.gain.value = SND.musicOn ? 0.32 : 0;
+    SND.music = c.createGain(); SND.music.gain.value = musGain();
     const dc = c.createBiquadFilter(); dc.type = 'highpass'; dc.frequency.value = 28; SND.music.connect(dc); dc.connect(SND.master);
     const len = c.sampleRate * 2;
     SND.noise = c.createBuffer(1, len, c.sampleRate);
@@ -4367,8 +4373,31 @@ function audioUnlock() {
   if (SND.ctx.state === 'suspended') SND.ctx.resume();
 }
 for (const ev of ['pointerdown', 'touchend', 'keydown']) addEventListener(ev, audioUnlock, { passive: true });
-function setSound(on) { SND.on = on; lsSet('strike.v1.sound', on); if (SND.master) SND.master.gain.setTargetAtTime(on ? 0.9 : 0, SND.ctx.currentTime, 0.05); }
-function setMusic(on) { SND.musicOn = on; lsSet('strike.v1.music', on); if (SND.music) SND.music.gain.setTargetAtTime(on ? 0.32 : 0, SND.ctx.currentTime, 0.2); }
+function applyVolumes() {
+  if (!SND.ctx) return;
+  SND.sfx.gain.setTargetAtTime(fxGain(), SND.ctx.currentTime, 0.05);
+  SND.music.gain.setTargetAtTime(musGain(), SND.ctx.currentTime, 0.1);
+}
+function setSound(on) { SND.on = on; lsSet('strike.v1.sound', on); applyVolumes(); }
+function setMusic(on) { SND.musicOn = on; lsSet('strike.v1.music', on); applyVolumes(); }
+function setFxVol(v) { SND.fxVol = v; lsSet('strike.v1.fxvol', v); applyVolumes(); }
+function setMusVol(v) { SND.musVol = v; lsSet('strike.v1.musvol', v); applyVolumes(); }
+const soundLabel = () => 'SOUND: FX ' + (SND.on ? Math.round(SND.fxVol * 100) : 'OFF') + ' · MUSIC ' + (SND.musicOn ? Math.round(SND.musVol * 100) : 'OFF');
+// The SOUND screen (from the menu): effects and music, each with an on/off switch and a volume slider.
+function soundScreen(back) {
+  audioUnlock();
+  const body = $('menu-body');
+  $('menu').querySelector('h2').textContent = 'SOUND';
+  const row = (id, label, on, vol) => '<div class="snd"><span>' + label + '</span><button id="' + id + '-on">' + (on ? 'ON' : 'OFF') + '</button>' +
+    '<input id="' + id + '-vol" type="range" min="0" max="100" step="5" value="' + Math.round(vol * 100) + '"' + (on ? '' : ' disabled') + '><b id="' + id + '-n">' + Math.round(vol * 100) + '</b></div>';
+  body.innerHTML = row('fx', 'EFFECTS', SND.on, SND.fxVol) + row('mu', 'MUSIC', SND.musicOn, SND.musVol) +
+    '<button id="snd-back">BACK</button><p class="fine">Remembered on this device. On iPhones the ringer switch must be on.</p>';
+  $('fx-on').onclick = () => { setSound(!SND.on); soundScreen(back); };
+  $('mu-on').onclick = () => { setMusic(!SND.musicOn); soundScreen(back); };
+  $('fx-vol').oninput = (e) => { setFxVol(e.target.value / 100); $('fx-n').textContent = e.target.value; if (ok('sample', 0.25)) SFX.boom(placeAt(), 24); };
+  $('mu-vol').oninput = (e) => { setMusVol(e.target.value / 100); $('mu-n').textContent = e.target.value; };
+  $('snd-back').onclick = back;
+}
 const audioReady = () => SND.ctx && SND.ctx.state === 'running' && SND.on;
 
 // --- building blocks ------------------------------------------------------------------------------------------------
@@ -5474,7 +5503,7 @@ function openMenu() {
     '<button id="m-resume">RESUME</button><button id="m-maps">CAMPAIGN MAPS</button>' +
     '<button id="m-multi">' + (role === 'solo' ? 'PLAY TOGETHER' : NET.connected ? 'TWO PLAYERS: LINKED' : 'TWO PLAYERS: NO LINK') + '</button>' +
     '<button id="m-ctl">CONTROLS: ' + controlMode + '</button>' +
-    '<button id="m-snd">SOUND: ' + (SND.on ? 'ON' : 'OFF') + '</button><button id="m-mus">MUSIC: ' + (SND.musicOn ? 'ON' : 'OFF') + '</button>' +
+    '<button id="m-snd">' + soundLabel() + '</button>' +
     '<button id="m-free">FREE PLAY</button><button id="m-place">REAL PLACE</button><button id="m-cloud">CLOUD SAVE: ' + (cloudCfg() ? 'ON' : 'OFF') + '</button>' +
     (role === 'solo' ? '<button id="m-title">TITLE SCREEN</button>' : '') +
     '<p class="fine">' + (campaign ? 'The battle saves as you play.' : 'Free play and real places are not saved.') + (role === 'solo' ? ' The game is paused.' : ' Two-player games keep running.') + '</p>';
@@ -5484,8 +5513,7 @@ function openMenu() {
   $('m-maps').onclick = go(() => openMaps());
   $('m-multi').onclick = go(() => openMulti());
   $('m-ctl').onclick = () => { toggleMode(); $('m-ctl').textContent = 'CONTROLS: ' + controlMode; };
-  $('m-snd').onclick = () => { audioUnlock(); setSound(!SND.on); $('m-snd').textContent = 'SOUND: ' + (SND.on ? 'ON' : 'OFF'); };
-  $('m-mus').onclick = () => { audioUnlock(); setMusic(!SND.musicOn); $('m-mus').textContent = 'MUSIC: ' + (SND.musicOn ? 'ON' : 'OFF'); };
+  $('m-snd').onclick = () => soundScreen(openMenu);
   $('m-free').onclick = go(() => { if (role === 'guest') sayLocal('ONLY THE HOST CAN CHANGE THE MAP'); else startFreePlay(); });
   $('m-place').onclick = go(() => openPlace());
   $('m-cloud').onclick = go(() => { openMaps(); cloudScreen(); });
