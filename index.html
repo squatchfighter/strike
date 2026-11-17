@@ -76,6 +76,16 @@
   #menu p.note { margin: 2px 0 6px; padding: 5px 8px; background: rgba(120,230,255,0.12); border-left: 3px solid #78e6ff; color: #e8f6ff; font-size: 12px; }
   #menu p.army { margin: 0 0 8px; color: #a0e0f0; font-size: 12px; }
   #menu button.buy span.what { color: #e8ecd8; }
+  #menu .tmap { position: relative; margin: 4px auto 6px; }
+  #menu .tmap svg { position: absolute; left: 0; top: 0; }
+  @media (max-width: 620px), (max-height: 430px) { #menu .tmap { zoom: 0.72; } }
+  #menu button.tdot { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; padding: 0 !important; border-radius: 50%; border: 2px solid; background: rgba(10,12,10,0.85); font: bold 12px monospace; line-height: 22px; text-align: center; display: block; }
+  #menu button.tdot.sel { box-shadow: 0 0 0 3px #fff0a0; } #menu button.tdot.empty { border-style: dashed; animation: tblink 1s steps(2) infinite; }
+  @keyframes tblink { 50% { opacity: 0.55; } }
+  body.keys #menu button.tdot[data-hk]::after { right: -8px; bottom: -8px; padding: 0 2px; font-size: 9px; }
+  #menu .tpanel { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; min-height: 28px; font-size: 11px; color: #a8b0a0; }
+  #menu .tpanel b { color: #a0e0f0; font-weight: normal; } #menu .tpanel em { color: #fff0a0; font-style: normal; }
+  #menu .btabs { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; } #menu button.btab { display: inline-block; width: auto; margin: 0; padding: 3px 8px; font-size: 11px; } #menu button.btab.on { border-color: #fff0a0; color: #fff0a0; }
   #menu .towers { display: flex; flex-direction: column; gap: 3px; }
   #menu .trow { display: flex; align-items: center; gap: 4px; padding: 3px 6px; background: rgba(255,255,255,0.04); font-size: 11px; }
   #menu .trow > span { flex: 1; text-align: left; } #menu .trow b { color: #a0e0f0; font-weight: normal; } #menu .trow.empty > span { color: #f0a080; }
@@ -4801,16 +4811,61 @@ function postName(p) {
     : (y === 0 ? 'TOP-RIGHT GATE' : y === 11 ? 'BOTTOM-LEFT GATE' : x === 0 ? 'TOP-LEFT GATE' : 'BOTTOM-RIGHT GATE') + ((y === 0 || y === 11 ? x : y) === 4 ? ', UPPER' : ', LOWER');
   return base + ' ' + where;
 }
+// The towers as a map of the base: tap a tower to see who's up there and what you can make him.
+const wallOf = (p) => { const cx = p.i % SIZE, cy = (p.i / SIZE) | 0; return (world.walls || []).find((w) => cx >= w.r.x && cx <= w.r.x + 11 && cy >= w.r.y && cy <= w.r.y + 11); };
+const GUARD = { inf: ['R', 'RIFLEMAN', '#7cc85a'], sniper: ['S', 'SNIPER', '#78c8ff'], rocket: ['K', 'ROCKETS', '#ffa050'] };
+let towerView = { wall: null, idx: -1 };
 function postShop() {
   const mine = myPosts(me), cr = credits(me);
-  const guard = (p) => (!p.alive ? 'NOBODY: UNMANNED' : p.type === 'inf' ? 'RIFLEMAN' : p.type === 'sniper' ? 'SNIPER' : 'ROCKET SOLDIER');
+  const walls = [...new Set(mine.map(wallOf).filter(Boolean))];
+  if (!walls.length) return '<p>YOUR TOWERS</p><p class="fine">No towers yet.</p>';
+  // which base to show: the one picked, else the one you're nearest
+  const h = helis[me];
+  let wl = walls.find((w) => w.id === towerView.wall);
+  if (!wl) { wl = walls.slice().sort((a, b) => gdist(h.x, h.y, cellX(a.r.x + 6, a.r.y + 6), cellY(a.r.x + 6, a.r.y + 6)) - gdist(h.x, h.y, cellX(b.r.x + 6, b.r.y + 6), cellY(b.r.x + 6, b.r.y + 6)))[0]; towerView.wall = wl.id; }
+  const baseName = (w) => (w.id === -1 ? 'HOME' : w.id === -3 ? 'P2 HOME' : 'FORWARD BASE ' + (w.id + 1));
+  const tabs = walls.length > 1 ? '<div class="btabs">' + walls.map((w) => '<button class="btab' + (w === wl ? ' on' : '') + '" data-wall="' + w.id + '">' + baseName(w) + '</button>').join('') + '</div>' : '';
+  // iso diagram: cell (x, y) of the base -> px
+  const S = 18, W0 = 12 * S * 2 + 40, H0 = 12 * S + 50, ox = W0 / 2, oy = 24;
+  const P = (x, y) => [ox + (x - y) * S, oy + (x + y) * S / 2];
+  const poly = (pts, fill, stroke, extra) => '<polygon points="' + pts.map((q) => q.join(',')).join(' ') + '" fill="' + fill + '" stroke="' + (stroke || 'none') + '" ' + (extra || '') + '/>';
+  const r = wl.r;
+  let svg = poly([P(0, 0), P(12, 0), P(12, 12), P(0, 12)], '#4a4c46', '#9a9c90', 'stroke-width="1.5"');
+  for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) {                    // buildings and the pad
+    const i = (r.y + y) * SIZE + r.x + x, lg = world.large[i];
+    if (world.ground[i] === T.HELIPAD) svg += poly([P(x, y), P(x + 1, y), P(x + 1, y + 1), P(x, y + 1)], '#5a5a50');
+    if (lg >= 0) {
+      const dead = lg === L.RUIN, f = dead ? '#3a3632' : '#5f7a46';
+      svg += poly([P(x - 1, y - 1), P(x + 1, y - 1), P(x + 1, y + 1), P(x - 1, y + 1)], f, dead ? '#2a2622' : '#89a868');
+    }
+  }
+  const pads = friendlyPads().filter((p) => p.cx >= r.x && p.cx <= r.x + 12 && p.cy >= r.y && p.cy <= r.y + 12);
+  for (const p of pads) { const [px, py] = P(p.cx - r.x - 0.5, p.cy - r.y - 0.5); svg += '<ellipse cx="' + px + '" cy="' + py + '" rx="15" ry="7.5" fill="none" stroke="#e8c040" stroke-width="1.5"/><text x="' + px + '" y="' + (py + 4) + '" fill="#e8c040" font-size="10" text-anchor="middle" font-family="monospace">H</text>'; }
+  for (const sd of wl.sides) for (const [gx, gy] of gateCells(r, sd)) {          // gates: red-and-white bars
+    const [a, b] = sd === 'n' || sd === 's' ? [P(gx - r.x, gy - r.y + (sd === 's' ? 1 : 0)), P(gx - r.x + 1, gy - r.y + (sd === 's' ? 1 : 0))] : [P(gx - r.x + (sd === 'e' ? 1 : 0), gy - r.y), P(gx - r.x + (sd === 'e' ? 1 : 0), gy - r.y + 1)];
+    svg += '<line x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '" stroke="#e04030" stroke-width="3" stroke-dasharray="3 3"/>';
+  }
+  // the towers: buttons sat on the map
+  const here = mine.filter((p) => wallOf(p) === wl);
+  const dots = here.map((p) => {
+    const cx = p.i % SIZE - r.x, cy = ((p.i / SIZE) | 0) - r.y, [px, py] = P(cx + 0.5, cy + 0.5), g = p.alive ? GUARD[p.type] : ['!', 'EMPTY', '#ff6050'];
+    const k = posts.indexOf(p);
+    return '<button class="tdot' + (k === towerView.idx ? ' sel' : '') + (p.alive ? '' : ' empty') + '" data-tidx="' + k + '" style="left:' + px + 'px;top:' + py + 'px;border-color:' + g[2] + ';color:' + g[2] + '" title="' + postName(p) + '">' + g[0] + '</button>';
+  }).join('');
+  // the picked tower: what's there and what you can do with it
+  const sel = posts[towerView.idx] && here.includes(posts[towerView.idx]) ? posts[towerView.idx] : null;
   const btn = (p, type, label) => '<button class="tbtn" data-post="' + type + '" data-idx="' + posts.indexOf(p) + '"' + (cr >= POST_COST[type] ? '' : ' disabled') + '>' + label + ' ' + POST_COST[type] + '</button>';
-  const rows = mine.map((p) => '<div class="trow' + (p.alive ? '' : ' empty') + '"><span><b>' + postName(p) + '</b> · ' + guard(p) + '</span>' +
-    (!p.alive ? btn(p, 'inf', 'RE-MAN') : p.type === 'inf' ? btn(p, 'sniper', 'SNIPER') + btn(p, 'rocket', 'ROCKETS') : '<em>TOP RANK</em>') + '</div>').join('');
-  return '<p>YOUR TOWERS <span class="fine">' + mine.filter((p) => p.alive).length + ' OF ' + mine.length + ' MANNED · ' + mine.filter((p) => p.alive && p.type === 'sniper').length + ' SNIPER · ' + mine.filter((p) => p.alive && p.type === 'rocket').length + ' ROCKETS</span></p>' +
-    '<div class="towers">' + (rows || '<p class="fine">No towers yet.</p>') + '</div>';
+  const panel = sel ? '<div class="tpanel"><b>' + postName(sel) + '</b><span>' + (sel.alive ? 'ON GUARD: ' + GUARD[sel.type][1] : 'UNMANNED') + '</span>' +
+    (!sel.alive ? btn(sel, 'inf', 'RE-MAN') : sel.type === 'inf' ? btn(sel, 'sniper', 'MAKE SNIPER') + btn(sel, 'rocket', 'MAKE ROCKETS') : '<em>TOP RANK</em>') + '</div>'
+    : '<div class="tpanel"><span>Tap a tower to upgrade it or put a new man in it.</span></div>';
+  return '<p>YOUR TOWERS <span class="fine">' + mine.filter((p) => p.alive).length + ' OF ' + mine.length + ' MANNED · R RIFLEMAN · S SNIPER · K ROCKETS · ! EMPTY</span></p>' + tabs +
+    '<div class="tmap" style="width:' + W0 + 'px;height:' + H0 + 'px"><svg width="' + W0 + '" height="' + H0 + '">' + svg + '</svg>' + dots + '</div>' + panel;
 }
-function postShopWire(body) { for (const b of body.querySelectorAll('button[data-post]')) b.onclick = () => { upgradePost(me, b.dataset.post, +b.dataset.idx); setTimeout(openBase, role === 'guest' ? 250 : 0); }; }
+function postShopWire(body) {
+  for (const b of body.querySelectorAll('button[data-post]')) b.onclick = () => { upgradePost(me, b.dataset.post, +b.dataset.idx); setTimeout(openBase, role === 'guest' ? 250 : 0); };
+  for (const b of body.querySelectorAll('button.tdot')) b.onclick = () => { towerView.idx = +b.dataset.tidx; openBase(); };
+  for (const b of body.querySelectorAll('button.btab')) b.onclick = () => { towerView.wall = +b.dataset.wall; towerView.idx = -1; openBase(); };
+}
 
 // --- drawing: the man on top of the tower ----------------------------------------------------------------------------
 // He stands in the cabin: only his head, shoulders and weapon show, between the roof and the cabin wall.
