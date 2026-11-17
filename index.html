@@ -3,9 +3,13 @@
 <head>
 <meta charset="utf-8">
 <title>Strike</title>
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Strike">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0c1118">
+<link rel="apple-touch-icon" id="touch-icon">
 <style>
   html, body { margin: 0; height: 100%; background: #0c1118; overflow: hidden; overscroll-behavior: none; }
   body { display: flex; align-items: center; justify-content: center; }
@@ -3277,6 +3281,13 @@ async function cloudPull(id) {
   try {
     const prog = await cloudGet(cloudName('progress'));
     if (prog) lsSet(progKey(), mergeProgress(loadProgress(), prog));
+    // just opened and nothing done here yet, but the cloud says this campaign was last on another map: go there
+    const last = loadProgress().last;
+    if (campaign && campaign.id === id && campaign.fresh && campaign.elapsed < 30 && last && last !== id && role !== 'guest' && !players[1].active) {
+      startMap(last);
+      if (titleOpen) openTitle();
+      return;
+    }
     const st = await cloudGet(cloudName('map-' + id));
     if (st && campaign && campaign.id === id) {
       const n = applyDelta(st);
@@ -3284,6 +3295,7 @@ async function cloudPull(id) {
       if (st.won) campaign.won = true;
     }
     cloudState.status = 'CLOUD OK';
+    if (titleOpen) openTitle();                       // the title's CONTINUE line may have changed
   } catch (err) { cloudState.status = 'CLOUD UNREACHABLE'; }
 }
 
@@ -5052,6 +5064,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyE' || e.code === 'Enter') interact(me);
   if (e.code === 'KeyQ') openBase();
   if (e.code === 'KeyR') cycleOrders(me);
+  if (e.code === 'KeyF') toggleFullscreen();
 });
 window.addEventListener('keyup', (e) => {
   keys.delete(e.code);
@@ -5602,6 +5615,7 @@ function openMenu() {
     '<button id="m-multi">' + (role === 'solo' ? 'PLAY TOGETHER' : NET.connected ? 'TWO PLAYERS: LINKED' : 'TWO PLAYERS: NO LINK') + '</button>' +
     '<button id="m-ctl">CONTROLS: ' + controlMode + '</button>' +
     '<button id="m-snd">' + soundLabel() + '</button>' +
+    '<button id="m-full">' + (fullscreenOn() ? 'EXIT FULL SCREEN' : 'FULL SCREEN') + '</button>' +
     '<button id="m-free">FREE PLAY</button><button id="m-place">REAL PLACE</button><button id="m-cloud">CLOUD SAVE: ' + (cloudCfg() ? 'ON' : 'OFF') + '</button>' +
     (role === 'solo' ? '<button id="m-title">TITLE SCREEN</button>' : '') +
     '<p class="fine">' + (campaign ? 'The battle saves as you play.' : 'Free play and real places are not saved.') + (role === 'solo' ? ' The game is paused.' : ' Two-player games keep running.') + '</p>';
@@ -5612,12 +5626,53 @@ function openMenu() {
   $('m-multi').onclick = go(() => openMulti());
   $('m-ctl').onclick = () => { toggleMode(); $('m-ctl').textContent = 'CONTROLS: ' + controlMode; };
   $('m-snd').onclick = () => soundScreen(openMenu);
+  $('m-full').onclick = () => toggleFullscreen(openMenu);
   $('m-free').onclick = go(() => { if (role === 'guest') sayLocal('ONLY THE HOST CAN CHANGE THE MAP'); else startFreePlay(); });
   $('m-place').onclick = go(() => openPlace());
   $('m-cloud').onclick = go(() => { openMaps(); cloudScreen(); });
   if ($('m-title')) $('m-title').onclick = go(() => { if (campaign) autosave(true); openTitle(); });
 }
+function setTouchIcon() {
+  if (!$('touch-icon').getAttribute('href')) {          // home screen icon: the logo on a dark square
+    const im = new Image();
+    im.onload = () => {
+      const c = document.createElement('canvas'); c.width = c.height = 180; const g = c.getContext('2d');
+      g.fillStyle = '#121820'; g.fillRect(0, 0, 180, 180); g.imageSmoothingEnabled = false;
+      const k = 164 / im.width; g.drawImage(im, 8, Math.round(90 - im.height * k / 2), 164, Math.round(im.height * k));
+      $('touch-icon').setAttribute('href', c.toDataURL('image/png'));
+    };
+    im.src = ASSETS.logo;
+  }
+}
 function closeMenu() { $('menu').hidden = true; grabFocus(); }
+// Full screen: the browser's own full screen where it has one (computers, Android, iPad). iPhones don't allow it for
+// web pages, so there the game says how to get it: Share > Add to Home Screen, then open it from the home screen icon.
+const standalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const fullscreenOn = () => !!(document.fullscreenElement || document.webkitFullscreenElement) || standalone();
+function toggleFullscreen(after) {
+  const el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen, exit = document.exitFullscreen || document.webkitExitFullscreen;
+  if (document.fullscreenElement || document.webkitFullscreenElement) { exit.call(document); if (after) setTimeout(after, 200); return; }
+  if (standalone()) { if (after) after(); return; }
+  if (req) {
+    const p = req.call(el, { navigationUI: 'hide' });
+    if (p && p.catch) p.catch(() => iphoneFullscreenHelp(after));
+    if (after) setTimeout(after, 250);
+    return;
+  }
+  iphoneFullscreenHelp(after);
+}
+function iphoneFullscreenHelp(back) {
+  const body = $('menu-body');
+  $('menu').hidden = false; $('menu').classList.remove('base');
+  $('menu').querySelector('h2').textContent = 'FULL SCREEN';
+  body.innerHTML = '<p>iPhones only let web games fill the screen from the home screen.</p>' +
+    '<p>In Safari tap <b>Share</b> (the square with the arrow), then <b>Add to Home Screen</b>. Open Strike from its new icon and it fills the whole screen.</p>' +
+    '<p class="fine">The home screen app keeps its own saves, so switch cloud save on in it (and use the same name) to carry on the same campaign.</p>' +
+    '<button id="fs-back">BACK</button>';
+  $('fs-back').onclick = () => (back ? back() : closeMenu());
+}
+addEventListener('fullscreenchange', () => setTimeout(resize, 60));
+addEventListener('webkitfullscreenchange', () => setTimeout(resize, 60));
 // The base screen (BASE button on one of your pads): pick your soldier kit, and (base.js) buy units.
 const KIT_INFO = { rifle: 'rifle, hand grenades', gren: 'rifle, grenade launcher', rocket: 'rifle, rockets: tanks, helis', flame: 'flamethrower, grenades', sniper: 'sniper rifle, grenades' };
 function openBase() {
@@ -5637,6 +5692,7 @@ function openBase() {
 }
 
 loadImages().then(() => {
+  setTouchIcon();
   FONT.white = IMG.font; FONT.shadow = tinted(IMG.font, 'rgba(0,0,0,0.75)');
   FONT.yellow = tinted(IMG.font, '#fff0a0'); FONT.cyan = tinted(IMG.font, '#a0e0f0');
   for (const n of ['tank_hull', 'tank_turret', 'aa', 'tank_hull_f', 'tank_turret_f', 'jeep', 'heli']) IMG[n + '_dead'] = darkened(IMG[n]);
