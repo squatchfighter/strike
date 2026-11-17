@@ -3671,21 +3671,23 @@ function spawnZombie(x, y, nestK, type) {
   if (role === 'host') netSend({ t: 'enew', a: packExtra(z), k });
   return z;
 }
-function zombieTarget(e) {                      // the nearest thing it can get its hands on
-  let best = null, bd = 420;
+function zombieTarget(e) {                      // people first (soldiers, you on foot, civilians); vehicles only if nobody is in reach
+  let human = null, hd = 420, mach = null, md = 420;
   for (let pi = 0; pi < 2; pi++) {
     const pl = players[pi];
     if (!pl.active || pl.dead || veh(pi).air) continue;
     const d = gdist(e.x, e.y, helis[pi].x, helis[pi].y);
-    if (d < bd) { bd = d; best = { pi }; }
+    if (pl.kind === 'foot') { if (d < hd) { hd = d; human = { pi }; } }
+    else if (d < md) { md = d; mach = { pi }; }
   }
   for (const o of enemies) {
     if (!o.alive || isZed(o.type) || ENEMY[o.type].air) continue;
     const d = gdist(e.x, e.y, o.x, o.y);
-    if (d < bd) { bd = d; best = { e: o }; }
+    if (isFoot(o.type)) { if (d < hd) { hd = d; human = { e: o }; } }
+    else if (d < md) { md = d; mach = { e: o }; }
   }
-  if (!ENEMY[e.type].spit && typeof nearestCiv === 'function') { const n = nearestCiv(e.x, e.y, Math.min(bd, 300)); if (n) best = { c: n.c }; }
-  return best;
+  if (!ENEMY[e.type].spit && typeof nearestCiv === 'function') { const n = nearestCiv(e.x, e.y, hd); if (n) human = { c: n.c }; }
+  return human || mach;
 }
 // Which base to march on: one of the three nearest standing bases (the enemy's, yours, or home).
 function zombieGoal(e) {
@@ -4616,7 +4618,7 @@ function towerRoof() {
 // --- civilians ----------------------------------------------------------------------------------------------
 // People on the pavements of every city. They stroll block to block, cross at the corners, run from
 // gunfire and zombies, and duck into buildings to hide. A zombie that kills one leaves a body that gets
-// back up a few seconds later as a zombie. The army leaves them alone. If you or your units kill one,
+// back up a second or two later as a zombie. The army leaves them alone. If you or your units kill one,
 // that player's side loses credits.
 // The host decides everything; a guest gets positions and states in the snapshot (the people are made
 // from the map seed on both sides, so their ids line up).
@@ -4672,7 +4674,7 @@ function civHit(c, dmg, by, zombie) {
   c.panic = time + 8;
   if (c.hp > 0) return;
   c.alive = false; c.fallT = time; c.st = 3;
-  if (zombie && zombiesOn()) c.rise = time + rand(3.5, 5.5);
+  if (zombie && zombiesOn()) c.rise = time + rand(1.2, 2.0);
   if (by >= 0 && players[by] && players[by].active) {
     addCredits(by, -CIV_PENALTY);
     say('CIVILIAN KILLED  -' + CIV_PENALTY + ' CREDITS', 3);
