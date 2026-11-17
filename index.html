@@ -4255,11 +4255,17 @@ function postShop() {
 function postShopWire(body) { for (const b of body.querySelectorAll('button[data-post]')) b.onclick = () => { upgradePost(me, b.dataset.post); setTimeout(openBase, role === 'guest' ? 250 : 0); }; }
 
 // --- drawing: the man on top of the tower ----------------------------------------------------------------------------
-const POST_LIFT = 46;
+// He stands in the cabin: only his head, shoulders and weapon show, between the roof and the cabin wall.
+const POST_LIFT = 40;
 function drawPost(p, x, y) {
   const sheet = IMG['soldier' + (ENEMY[p.type].sheet || '') + (p.side === 'army' ? '' : '_f')];
   if (!p.alive) return;
+  ctx.save();
+  ctx.beginPath();                                   // everything above the top edge of the cabin wall
+  ctx.moveTo(x - 30, y - 80); ctx.lineTo(x + 30, y - 80); ctx.lineTo(x + 30, y - 49); ctx.lineTo(x + 16, y - 49); ctx.lineTo(x, y - 42); ctx.lineTo(x - 16, y - 49); ctx.lineTo(x - 30, y - 49);
+  ctx.closePath(); ctx.clip();
   ctx.drawImage(sheet, frame8(p.h) * 32, (p.engaged ? 3 : 1) * 40, 32, 40, x - 16, y - 30 - POST_LIFT, 32, 40);
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------
