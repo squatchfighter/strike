@@ -72,7 +72,18 @@
   #menu .snd { display: flex; align-items: center; gap: 10px; margin: 8px 0; grid-column: 1 / -1; }
   #menu .snd span { width: 6em; text-align: left; color: #a0e0f0; letter-spacing: 1px; } #menu .snd button { margin: 0; flex: 0 0 5em; width: 5em; padding: 6px 4px; }
   #menu .snd input { flex: 1; accent-color: #c8e070; height: 28px; } #menu .snd input:disabled { opacity: 0.35; } #menu .snd b { width: 2.2em; text-align: right; color: #fff0a0; font-weight: normal; }
-  #menu .shop { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  #menu .shop { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  #menu button.buy.icon { position: relative; padding: 3px 4px 4px !important; text-align: center; }
+  #menu button.buy.icon img { display: block; width: 96px; height: 72px; margin: 0 auto; image-rendering: pixelated; }
+  #menu button.buy.icon b { display: block; font-size: 10px; line-height: 1.2; } #menu button.buy.icon i { float: none; display: block; font-size: 11px; }
+  #menu button.buy.icon .cnt { position: absolute; left: 4px; top: 3px; color: #fff0a0; font-size: 11px; }
+  #menu button.buy.icon .own { position: absolute; right: 4px; top: 3px; color: #78e6ff; font-size: 9px; }
+  #menu button.buy.icon:disabled i { color: #f0a080; }
+  body.keys #menu button.buy.icon[data-hk]::after { top: auto; bottom: 3px; right: 3px; transform: none; }
+  #menu .kits { grid-template-columns: repeat(5, 1fr) !important; }
+  #menu button.kit.icon { text-align: center; padding: 3px 4px 4px !important; } #menu button.kit.icon img { display: block; width: 84px; height: 63px; margin: 0 auto; image-rendering: pixelated; }
+  #menu button.kit.icon b { font-size: 10px; } #menu button.kit.icon span { display: block; font-size: 9px; line-height: 1.2; }
+  @media (max-width: 620px), (max-height: 430px) { #menu .shop { grid-template-columns: repeat(3, 1fr); } #menu button.buy.icon img, #menu button.kit.icon img { width: 64px; height: 48px; } }
   #menu p.note { margin: 2px 0 6px; padding: 5px 8px; background: rgba(120,230,255,0.12); border-left: 3px solid #78e6ff; color: #e8f6ff; font-size: 12px; }
   #menu p.army { margin: 0 0 8px; color: #a0e0f0; font-size: 12px; }
   #menu button.buy span.what { color: #e8ecd8; }
@@ -4618,15 +4629,32 @@ function armySummary(mine) {
   for (const e of mine) by[e.type] = (by[e.type] || 0) + 1;
   return Object.keys(by).map((t) => by[t] + ' ' + plural(unitWord(t), by[t])).join(' · ') || 'NONE YET';
 }
+// A picture of each unit for the shop: its own sprite in your colours, three-quarter view, cut out once and kept.
+const thumbs = {};
+function unitThumb(type) {
+  if (thumbs[type]) return thumbs[type];
+  const c = document.createElement('canvas'), g = c.getContext('2d'), W = 96, H = 72;
+  c.width = W; c.height = H; g.imageSmoothingEnabled = false;
+  const put = (img, sx, sy, sw, sh, scale, dy) => { const w = sw * scale, h = sh * scale; g.drawImage(img, sx, sy, sw, sh, Math.round((W - w) / 2), Math.round((H - h) / 2 + (dy || 0)), w, h); };
+  const f16 = frame16(Math.PI / 4), f8 = frame8(Math.PI / 4);
+  if (isTank(type)) { put(IMG.tank_hull_f, f16 * 96 + 14, 10, 68, 56, 1.35); put(IMG[type + '_turret_f'], f16 * 96 + 14, 10, 68, 56, 1.35); }
+  else if (type === 'bike') put(IMG.bike_f, f16 * 48 + 6, 6, 36, 36, 2);
+  else if (type === 'buggy') put(IMG.buggy_f, f16 * 64 + 6, 8, 52, 42, 1.6);
+  else if (type === 'jeep') put(IMG.jeep, f16 * 64 + 6, 8, 52, 42, 1.6);
+  else if (type === 'apache' || type === 'scout') { const f = heliFrame(Math.PI / 4), img = type === 'scout' ? IMG.scout : IMG.heli; put(img, (f % HELI.cols) * HELI.size + 26, ((f / HELI.cols) | 0) * HELI.size + 60, 140, 96, 0.68); }
+  else { const sheet = IMG['soldier' + (ENEMY[type] && ENEMY[type].sheet || (INF[type] && type !== 'rifle' ? '_' + type : '')) + '_f']; put(sheet, f8 * 32 + 6, 40 + 6, 20, 32, 2.2); }
+  return (thumbs[type] = c.toDataURL());
+}
 function baseShop() {
   const cr = credits(me), mine = myUnits(me), room = UNIT_CAP - mine.length;
   const have = (t) => mine.filter((e) => e.type === t).length;
   const items = SHOP.map((s) => {
-    const n = s.units ? s.units.length : 0, short = s.cost - cr, full = n && n > room;
+    const n = s.units ? s.units.length : 0, short = s.cost - cr, full = n && n > room, t = s.units ? s.units[0] : s.park;
     const what = s.units ? n + ' ' + plural(unitWord(s.units[0]), n) : 'PARKED ON YOUR PAD';
-    const owned = s.units && have(s.units[0]) ? ' · YOU HAVE ' + have(s.units[0]) : '';
-    const why = short > 0 ? 'NEED ' + short + ' MORE' : full ? 'UNIT LIMIT (' + mine.length + '/' + UNIT_CAP + ')' : '';
-    return '<button class="buy" data-id="' + s.id + '"' + (why ? ' disabled' : '') + '><b>' + s.name + '</b><i>' + s.cost + '</i><span class="what">' + what + owned + '</span><span>' + (why || s.info) + '</span></button>';
+    const why = short > 0 ? 'NEED ' + short : full ? 'NO ROOM' : '';
+    const own = s.units && have(t) ? '<span class="own">HAVE ' + have(t) + '</span>' : '';
+    return '<button class="buy icon" data-id="' + s.id + '" title="' + s.name + ': ' + what + '. ' + s.info + '"' + (why ? ' disabled' : '') + '>' + own + (n > 1 ? '<span class="cnt">×' + n + '</span>' : '') +
+      '<img src="' + unitThumb(t) + '" alt=""><b>' + s.name + '</b><i>' + (why || s.cost) + '</i></button>';
   }).join('');
   let give = '';
   if (players[1 - me].active && mine.length && playerAt(1 - seatOf(me)) >= 0) {
@@ -6747,7 +6775,7 @@ function openBase() {
   keys.clear(); weaponDown.fill(false);
   const body = $('menu-body');
   const pad = onOwnPad(me);
-  const kits = Object.keys(INF).map((k) => '<button class="kit' + (player.inf === k ? ' on' : '') + '" data-kit="' + k + '"' + (pad ? '' : ' disabled') + '><b>' + INF[k].name + '</b><span>' + KIT_INFO[k] + '</span></button>').join('');
+  const kits = Object.keys(INF).map((k) => '<button class="kit icon' + (player.inf === k ? ' on' : '') + '" data-kit="' + k + '" title="' + INF[k].name + ': ' + KIT_INFO[k] + '"' + (pad ? '' : ' disabled') + '><img src="' + unitThumb(k === 'rifle' ? 'inf' : k) + '" alt=""><b>' + INF[k].name + '</b><span>' + KIT_INFO[k] + '</span></button>').join('');
   $('menu').querySelector('h2').textContent = 'BASE'; $('menu').classList.add('base');
   body.innerHTML = '<p>SOLDIER KIT <span class="fine">' + (pad ? '(what you are on foot)' : '(change it on one of your pads)') + '</span></p><div class="kits">' + kits + '</div>' +
     (typeof baseShop === 'function' ? baseShop() : '') + postShop() + '<div class="row"><button id="b-close">BACK TO THE FIGHT</button></div>';
