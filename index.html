@@ -20,110 +20,142 @@
   #rotate { display: none; position: fixed; inset: 0; background: #0c1118; color: #fff0a0; align-items: center;
             justify-content: center; font: 16px ui-monospace, Menlo, monospace; letter-spacing: 2px; text-align: center; }
   @media (orientation: portrait) and (max-width: 600px) { #rotate { display: flex; } }
-  #mp, #place, #camp, #menu { position: fixed; inset: 0; background: rgba(6,8,12,0.82); display: flex; align-items: center; justify-content: center;
-        font: 14px ui-monospace, Menlo, Consolas, monospace; color: #d8dcd4; z-index: 5; }
+  /* ===== menus: one look everywhere ===================================================================== */
+  :root { --panel: #151b21; --panel2: #1b232b; --line: #34413a; --line2: #5d6e58; --text: #dfe4da; --dim: #8e998c;
+          --yellow: #f2d27a; --cyan: #8fd8ec; --btn: #25302a; --btn-h: #31402f; --btn-line: #5f7258; --red: #f09a7a;
+          --main: #8f4c1f; --main-line: #f0b050; }
+  #mp, #place, #camp, #menu { position: fixed; inset: 0; background: rgba(5,7,10,0.78); display: flex; align-items: center; justify-content: center;
+        font: 13px ui-monospace, Menlo, Consolas, monospace; color: var(--text); z-index: 5; -webkit-font-smoothing: antialiased; }
   #mp[hidden], #place[hidden], #camp[hidden], #menu[hidden], #title[hidden] { display: none; }
-  #mp .box, #place .box, #camp .box, #menu .box { width: min(92vw, 520px); max-height: 92vh; overflow: auto; background: #151a20; border: 2px solid #5c6a58; padding: 16px 18px; box-sizing: border-box; }
-  #mp h2, #place h2, #camp h2, #menu h2 { margin: 0 0 8px; font-size: 16px; letter-spacing: 2px; color: #fff0a0; }
-  #mp p, #place p, #camp p, #menu p { margin: 10px 0 6px; line-height: 1.4; }
-  #mp textarea, #place textarea { width: 100%; box-sizing: border-box; background: #0c1014; color: #a0e0f0; border: 1px solid #44505a; font: 12px ui-monospace, Menlo, monospace; padding: 6px; word-break: break-all; resize: vertical; }
-  #mp button, #place button, #camp button, #menu button { background: #2c3a2a; color: #e8ecd8; border: 1px solid #7c8a6c; padding: 8px 14px; margin: 6px 8px 0 0; font: inherit; letter-spacing: 1px; cursor: pointer; }
-  #mp button:active, #place button:active, #camp button:active, #menu button:active { background: #44563e; }
-  #mp .row, #place .row, #camp .row, #menu .row { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0; }
-  #mp label, #place label, #camp label { display: block; cursor: pointer; }
-  #mp label span, #place label span, #camp label span { display: block; margin-left: 24px; color: #8a948a; font-size: 12px; }
-  #mp .err, #place .err, #camp .err { color: #f0a070; min-height: 1.2em; }
-  #place input, #place select { background: #0c1014; color: #a0e0f0; border: 1px solid #44505a; font: inherit; padding: 7px; }
+  #mp .box, #place .box, #camp .box, #menu .box { width: min(94vw, 560px); max-height: 92vh; overflow: auto; background: var(--panel); border: 1px solid var(--line2);
+        box-shadow: 0 12px 40px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05); padding: 0 18px 16px; box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #4a5a48 transparent; }
+  #menu .box { width: min(94vw, 440px); text-align: center; }
+  #camp .box, #menu.base .box { width: min(96vw, 680px); }
+  /* the header bar: title on the left, close on the right, stuck to the top when the box scrolls */
+  .hd { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px; margin: 0 -18px 10px; padding: 11px 18px 10px;
+        background: var(--panel); border-bottom: 1px solid var(--line); }
+  .hd h2 { flex: 1; margin: 0 !important; font-size: 14px; letter-spacing: 3px; color: var(--yellow); text-align: left !important; font-weight: bold; }
+  #mp .hd button.x, #place .hd button.x, #camp .hd button.x, #menu .hd button.x { flex: 0 0 auto; width: 28px !important; height: 26px; margin: 0 !important; padding: 0 !important;
+        font-size: 13px; line-height: 24px; text-align: center; background: transparent; border-color: var(--line2); color: var(--dim); display: inline-block; }
+  #mp .hd button.x:hover, #place .hd button.x:hover, #camp .hd button.x:hover, #menu .hd button.x:hover { color: var(--text); border-color: var(--text); background: transparent; }
+  body.keys .hd button.x::after { display: none; }
+  #mp p, #place p, #camp p, #menu p { margin: 8px 0 6px; line-height: 1.45; }
+  .fine, #menu .fine, #camp .fine, #place .fine { color: var(--dim); font-size: 11px; line-height: 1.45; }
+  .sec { margin: 14px 0 6px !important; font-size: 11px; letter-spacing: 2px; color: var(--cyan); text-align: left; }
+  .sec .fine { letter-spacing: 0; margin-left: 6px; }
+  #mp textarea, #place textarea { width: 100%; box-sizing: border-box; background: #0c1014; color: var(--cyan); border: 1px solid var(--line2); font: 12px ui-monospace, Menlo, monospace; padding: 6px; word-break: break-all; resize: vertical; }
+  #place input, #place select, #camp input { background: #0d1216; color: var(--cyan); border: 1px solid var(--line2); font: inherit; padding: 8px; border-radius: 0; }
   #place input { flex: 1; min-width: 0; }
+  #camp input { width: 100%; box-sizing: border-box; margin: 4px 0 8px; }
+  #place input:focus, #camp input:focus, #mp textarea:focus { outline: 1px solid var(--yellow); }
+  /* buttons */
+  #mp button, #place button, #camp button, #menu button { background: var(--btn); color: var(--text); border: 1px solid var(--btn-line); padding: 8px 14px; margin: 0;
+        font: inherit; letter-spacing: 1px; cursor: pointer; border-radius: 0; transition: background 0.08s, border-color 0.08s; }
+  #mp button:hover, #place button:hover, #camp button:hover, #menu button:hover { background: var(--btn-h); border-color: #8aa07a; }
+  #mp button:active, #place button:active, #camp button:active, #menu button:active { background: #3e523a; }
+  #mp button:disabled, #place button:disabled, #camp button:disabled, #menu button:disabled { opacity: 0.42; cursor: default; background: var(--btn); border-color: var(--btn-line); }
+  #mp button:focus-visible, #place button:focus-visible, #camp button:focus-visible, #menu button:focus-visible { outline: 1px solid var(--yellow); outline-offset: 1px; }
+  #mp .row, #place .row, #camp .row, #menu .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+  #camp .row > button, #mp .row > button { flex: 1 1 0; white-space: nowrap; }
+  #mp label, #place label, #camp label { display: block; cursor: pointer; margin: 6px 0; }
+  #mp label span, #place label span, #camp label span { display: block; margin-left: 24px; color: var(--dim); font-size: 11px; }
+  #mp .err, #place .err, #camp .err { color: var(--red); min-height: 1.2em; }
   #place .hit { display: block; width: 100%; text-align: left; margin: 4px 0 0; font-size: 12px; }
-  #place .fine { color: #8a948a; font-size: 11px; }
-  #place-close { float: right; margin: 0 !important; padding: 2px 9px !important; }
-  #camp .box { width: min(94vw, 620px); }
-  #camp .maps { display: flex; flex-direction: column; gap: 4px; max-height: 58vh; overflow: auto; margin: 6px 0; }
-  #camp button.map { display: block; width: 100%; text-align: left; margin: 0; padding: 7px 10px; }
-  #camp button.map .n { display: inline-block; width: 2.2em; color: #a0e0f0; }
-  #camp button.map .tag { float: right; color: #fff0a0; }
-  #camp button.map .brief { color: #8a948a; font-size: 12px; margin-left: 2.2em; }
-  #camp button.map.cur { border-color: #fff0a0; }
-  #camp button.map.locked { opacity: 0.45; cursor: default; }
-  #camp .win { color: #fff0a0; font-size: 15px; }
-  #camp input { width: 100%; box-sizing: border-box; background: #0c1014; color: #a0e0f0; border: 1px solid #44505a; font: inherit; padding: 7px; margin: 3px 0 8px; }
-  #camp .modes { align-items: center; } #camp .modes .lbl { color: #8a948a; font-size: 12px; letter-spacing: 2px; }
-  #camp button.mode { margin: 0; padding: 6px 10px; } #camp button.mode.on { background: #5a7a2a; border-color: #c8e070; color: #fff; }
-  #title #t-mode { border-color: #a8c060; }
-  #menu .kits { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; }
-  #menu button.kit { margin: 0; padding: 5px 6px; text-align: left; } #menu button.kit b { display: block; color: #a0e0f0; } #menu button.kit span { color: #a8b0a0; font-size: 11px; }
-  #menu button.kit.on { border-color: #fff0a0; background: #3a4a32; } #menu .fine { color: #8a948a; font-size: 11px; }
-  #camp .fine { color: #8a948a; font-size: 11px; }
-  #camp-close { float: right; margin: 0 !important; padding: 2px 9px !important; }
-  #hud { position: fixed; left: 0; top: 0; pointer-events: none; z-index: 2; }
-  #menu .box { width: min(92vw, 380px); text-align: center; }
-  /* menu hot keys: a small key in a gutter of its own at the right, so it never sits on the label */
-  #menu ul.obj { margin: 6px 0 4px; padding-left: 18px; text-align: left; font-size: 12px; line-height: 1.45; } #menu ul.obj li { margin: 3px 0; }
-  #camp .upgs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; } #camp button.buy { margin: 0; padding: 5px 8px; text-align: left; } #camp button.buy b { color: #a0e0f0; } #camp button.buy i { float: right; font-style: normal; color: #fff0a0; } #camp button.buy span { display: block; color: #a8b0a0; font-size: 11px; } #camp button.buy:disabled { opacity: 0.45; }
-  body.keys button[data-hk] { position: relative; padding-right: 26px !important; }
-  body.keys #menu > .box > #menu-body > button[data-hk] { padding-left: 26px; }
-  body.keys #title button[data-hk] { padding-left: 6px; padding-right: 18px !important; white-space: nowrap; }
-  body.keys #title button[data-hk]::after { right: 3px; }
-  body.keys button[data-hk]::after { content: attr(data-hk); position: absolute; top: 50%; right: 6px; transform: translateY(-50%); font-size: 10px; line-height: 1; letter-spacing: 0; padding: 2px 3px; border-radius: 2px; background: rgba(0,0,0,0.35); color: #c8c090; pointer-events: none; }
-  #menu button { display: block; width: 100%; margin: 7px 0 0; padding: 11px 14px; font-size: 15px; }
-  #menu.base .box { width: min(96vw, 640px); text-align: left; } #menu.base #menu-body { grid-template-columns: 1fr; } #menu.base #menu-body > * { grid-column: 1 / -1; }
-  #menu.base h2 { text-align: center; } #menu.base #menu-body p { margin: 6px 0 4px; }
-  #menu .snd { display: flex; align-items: center; gap: 10px; margin: 8px 0; grid-column: 1 / -1; }
-  #menu .snd span { width: 6em; text-align: left; color: #a0e0f0; letter-spacing: 1px; } #menu .snd button { margin: 0; flex: 0 0 5em; width: 5em; padding: 6px 4px; }
-  #menu .snd input { flex: 1; accent-color: #c8e070; height: 28px; } #menu .snd input:disabled { opacity: 0.35; } #menu .snd b { width: 2.2em; text-align: right; color: #fff0a0; font-weight: normal; }
+  /* campaign: map list */
+  #camp .maps { display: flex; flex-direction: column; gap: 3px; max-height: 52vh; overflow: auto; margin: 8px 0; padding-right: 2px; scrollbar-width: thin; }
+  #camp button.map { display: block; width: 100%; text-align: left; margin: 0; padding: 8px 10px; background: var(--panel2); border-color: var(--line); }
+  #camp button.map:hover { border-color: var(--btn-line); background: var(--btn); }
+  #camp button.map .n { display: inline-block; width: 2.2em; color: var(--cyan); }
+  #camp button.map .tag { float: right; color: var(--yellow); font-size: 11px; }
+  #camp button.map .brief { display: block; color: var(--dim); font-size: 11px; margin-left: 2.6em; }
+  #camp button.map.cur { border-color: var(--yellow); }
+  #camp button.map.locked { opacity: 0.4; }
+  #camp .win { color: var(--yellow); font-size: 14px; }
+  #camp .modes { align-items: center; margin-top: 4px; } #camp .modes .lbl { color: var(--dim); font-size: 11px; letter-spacing: 2px; }
+  #camp button.mode { padding: 6px 10px; } #camp button.mode.on { background: #4f6a28; border-color: #c8e070; color: #fff; }
+  /* pause menu and the other small menus: a tidy two-column grid */
+  #menu-body { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #menu-body > * { grid-column: 1 / -1; }
+  #menu-body > button { grid-column: auto; display: block; width: 100%; padding: 10px 8px; font-size: 13px; }
+  #menu-body > button.wide, #menu-body > #m-resume, #menu-body > #b-go, #menu-body > #m-title, #menu-body > #b-close { grid-column: 1 / -1; }
+  #menu-body > button:only-of-type, #menu-body > button:last-child:nth-of-type(odd):not(#m-title):not(#b-close) { grid-column: 1 / -1; }
+  #menu-body > #b-go { position: sticky; bottom: 0; }
+  #menu-body > #m-resume, #menu-body > #b-go { background: var(--main); border-color: var(--main-line); color: #fff4d0; font-size: 14px; padding: 12px 8px; }
+  #menu-body > #m-resume:hover, #menu-body > #b-go:hover { filter: brightness(1.12); background: var(--main); }
+  #menu-body > p { margin: 2px 0 6px; }
+  #menu-body > p.fine { margin-top: 6px; }
+  #menu.base .box { text-align: left; } #menu.base #menu-body > p { margin: 0; }
+  #menu ul.obj { margin: 4px 0 8px; padding: 10px 12px 10px 28px; text-align: left; font-size: 12px; line-height: 1.5; background: var(--panel2); border: 1px solid var(--line); }
+  #menu ul.obj li { margin: 3px 0; }
+  #menu ul.obj li::marker { color: var(--yellow); }
+  #menu .snd { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+  #menu .snd span { width: 6em; text-align: left; color: var(--cyan); letter-spacing: 1px; } #menu .snd button { margin: 0; flex: 0 0 4.5em; width: 4.5em; padding: 6px 4px; }
+  #menu .snd input { flex: 1; accent-color: #c8e070; height: 28px; } #menu .snd input:disabled { opacity: 0.35; } #menu .snd b { width: 2.2em; text-align: right; color: var(--yellow); font-weight: normal; }
+  /* base screen */
+  #menu .kits { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
   #menu .shop { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
-  #menu button.buy.icon { position: relative; padding: 3px 4px 4px !important; text-align: center; }
-  #menu button.buy.icon img { display: block; width: 96px; height: 72px; margin: 0 auto; image-rendering: pixelated; }
-  #menu button.buy.icon b { display: block; font-size: 10px; line-height: 1.2; } #menu button.buy.icon i { float: none; display: block; font-size: 11px; }
-  #menu button.buy.icon .cnt { position: absolute; left: 4px; top: 3px; color: #fff0a0; font-size: 11px; }
-  #menu button.buy.icon .own { position: absolute; right: 4px; top: 3px; color: #78e6ff; font-size: 9px; }
-  #menu button.buy.icon:disabled i { color: #f0a080; }
-  body.keys #menu button.buy.icon[data-hk]::after { top: auto; bottom: 3px; right: 3px; transform: none; }
-  #menu .kits { grid-template-columns: repeat(5, 1fr) !important; }
-  #menu button.kit.icon { text-align: center; padding: 3px 4px 4px !important; } #menu button.kit.icon img { display: block; width: 84px; height: 63px; margin: 0 auto; image-rendering: pixelated; }
-  #menu button.kit.icon b { font-size: 10px; } #menu button.kit.icon span { display: block; font-size: 9px; line-height: 1.2; }
-  @media (max-width: 620px), (max-height: 430px) { #menu .shop { grid-template-columns: repeat(3, 1fr); } #menu button.buy.icon img, #menu button.kit.icon img { width: 64px; height: 48px; } }
-  #menu p.note { margin: 2px 0 6px; padding: 5px 8px; background: rgba(120,230,255,0.12); border-left: 3px solid #78e6ff; color: #e8f6ff; font-size: 12px; }
-  #menu p.army { margin: 0 0 8px; color: #a0e0f0; font-size: 12px; }
-  #menu button.buy span.what { color: #e8ecd8; }
-  #menu .tmap { position: relative; margin: 4px auto 6px; }
+  #menu button.kit, #menu button.buy { position: relative; margin: 0; padding: 4px 4px 6px !important; text-align: center; background: var(--panel2); border-color: var(--line); }
+  #menu button.kit:hover:not(:disabled), #menu button.buy:hover:not(:disabled) { background: var(--btn); border-color: var(--btn-line); }
+  #menu button.kit img, #menu button.buy img { display: block; width: 96px; height: 72px; margin: 0 auto; image-rendering: pixelated; }
+  #menu button.kit img { width: 80px; height: 60px; }
+  #menu button.kit b, #menu button.buy b { display: block; font-size: 10px; letter-spacing: 1px; color: var(--cyan); font-weight: normal; margin-top: 1px; }
+  #menu button.kit span { display: block; font-size: 9px; line-height: 1.25; color: var(--dim); }
+  #menu button.kit.on { border-color: var(--yellow); background: #2e3a28; } #menu button.kit.on b { color: var(--yellow); }
+  #menu button.buy i { display: block; font-style: normal; font-size: 12px; color: var(--yellow); }
+  #menu button.buy:disabled { opacity: 1; } #menu button.buy:disabled img { opacity: 0.4; } #menu button.buy:disabled b { color: var(--dim); } #menu button.buy:disabled i { color: var(--red); font-size: 11px; }
+  #menu button.buy .cnt { position: absolute; left: 5px; top: 4px; color: var(--yellow); font-size: 11px; }
+  #menu button.buy .own { position: absolute; right: 5px; top: 4px; color: var(--cyan); font-size: 9px; }
+  #menu p.note { margin: 2px 0 2px !important; padding: 6px 10px; background: rgba(143,216,236,0.1); border-left: 3px solid var(--cyan); color: #e8f6ff; font-size: 12px; }
+  #menu p.army { margin: 0 !important; color: var(--text); font-size: 12px; }
+  #menu .give { padding: 6px 10px; font-size: 11px; }
+  #menu .tmap { position: relative; margin: 2px auto 4px; }
   #menu .tmap svg { position: absolute; left: 0; top: 0; }
-  @media (max-width: 620px), (max-height: 430px) { #menu .tmap { zoom: 0.72; } }
-  #menu button.tdot { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; padding: 0 !important; border-radius: 50%; border: 2px solid; background: rgba(10,12,10,0.85); font: bold 12px monospace; line-height: 22px; text-align: center; display: block; }
-  #menu button.tdot.sel { box-shadow: 0 0 0 3px #fff0a0; } #menu button.tdot.empty { border-style: dashed; animation: tblink 1s steps(2) infinite; }
+  #menu button.tdot { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; padding: 0 !important; border-radius: 50%; border: 2px solid; background: rgba(10,12,10,0.9); font: bold 12px monospace; line-height: 22px; text-align: center; display: block; }
+  #menu button.tdot.sel { box-shadow: 0 0 0 3px var(--yellow); } #menu button.tdot.empty { border-style: dashed; animation: tblink 1s steps(2) infinite; }
   @keyframes tblink { 50% { opacity: 0.55; } }
-  body.keys #menu button.tdot[data-hk]::after { right: -8px; bottom: -8px; padding: 0 2px; font-size: 9px; }
-  #menu .tpanel { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; min-height: 28px; font-size: 11px; color: #a8b0a0; }
-  #menu .tpanel b { color: #a0e0f0; font-weight: normal; } #menu .tpanel em { color: #fff0a0; font-style: normal; }
-  #menu .btabs { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; } #menu button.btab { display: inline-block; width: auto; margin: 0; padding: 3px 8px; font-size: 11px; } #menu button.btab.on { border-color: #fff0a0; color: #fff0a0; }
-  #menu .towers { display: flex; flex-direction: column; gap: 3px; }
-  #menu .trow { display: flex; align-items: center; gap: 4px; padding: 3px 6px; background: rgba(255,255,255,0.04); font-size: 11px; }
-  #menu .trow > span { flex: 1; text-align: left; } #menu .trow b { color: #a0e0f0; font-weight: normal; } #menu .trow.empty > span { color: #f0a080; }
-  #menu .trow em { color: #fff0a0; font-style: normal; font-size: 10px; }
-  #menu button.tbtn { display: inline-block; width: auto; margin: 0; padding: 3px 8px; font-size: 11px; } #menu button.tbtn:disabled { opacity: 0.45; }
-  #menu button.buy { margin: 0; padding: 5px 8px; text-align: left; } #menu button.buy b { color: #a0e0f0; } #menu button.buy i { float: right; font-style: normal; color: #fff0a0; }
-  #menu button.buy span { display: block; color: #a8b0a0; font-size: 11px; } #menu button.buy:disabled { opacity: 0.45; }
-  #menu .fine { color: #8a948a; font-size: 11px; margin-top: 12px; }
-  #menu-body { display: grid; grid-template-columns: 1fr; gap: 0 10px; }
-  #menu-body p, #menu-body #m-resume { grid-column: 1 / -1; }
-  @media (max-height: 500px) { #menu .box { width: min(94vw, 600px); padding: 10px 14px; } #menu-body { grid-template-columns: 1fr 1fr; }
-    #menu button { padding: 8px 10px; font-size: 13px; margin-top: 6px; } #menu h2 { margin-bottom: 2px; } #menu-body p { margin: 4px 0; } }
+  #menu .tpanel { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; min-height: 32px; padding: 4px 8px; font-size: 11px; color: var(--dim); background: var(--panel2); border: 1px solid var(--line); }
+  #menu .tpanel b { color: var(--cyan); font-weight: normal; } #menu .tpanel em { color: var(--yellow); font-style: normal; }
+  #menu .btabs { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; margin-bottom: 4px; }
+  #menu button.btab, #menu button.tbtn { display: inline-block; width: auto; margin: 0; padding: 4px 10px; font-size: 11px; } #menu button.btab.on { border-color: var(--yellow); color: var(--yellow); }
+  /* upgrades */
+  #camp .upgs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #camp button.buy { margin: 0; padding: 8px 10px; text-align: left; background: var(--panel2); border-color: var(--line); }
+  #camp button.buy b { color: var(--cyan); font-weight: normal; letter-spacing: 1px; } #camp button.buy i { float: right; font-style: normal; color: var(--yellow); }
+  #camp button.buy span { display: block; color: var(--dim); font-size: 11px; margin-top: 2px; }
+  #camp button.buy:disabled { opacity: 0.5; }
+  #hud { position: fixed; left: 0; top: 0; pointer-events: none; z-index: 2; }
+  /* keyboard hot keys: a quiet tag in the button's bottom-right corner, in a gutter of its own */
+  body.keys button[data-hk] { position: relative; padding-right: 24px !important; }
+  body.keys button[data-hk]::after { content: attr(data-hk); position: absolute; right: 5px; bottom: 4px; font-size: 9px; line-height: 1; letter-spacing: 0; padding: 1px 2px;
+        border: 1px solid rgba(200,192,144,0.3); color: rgba(220,210,160,0.75); pointer-events: none; }
+  body.keys #menu-body > button[data-hk] { padding-left: 24px; }
+  body.keys #menu button.buy[data-hk], body.keys #menu button.kit[data-hk] { padding-right: 4px !important; }
+  body.keys #menu button.tdot[data-hk]::after { right: -9px; bottom: -9px; background: #000; }
+  body.keys #camp button.map[data-hk]::after { bottom: 50%; transform: translateY(50%); }
+  @media (max-width: 620px), (max-height: 430px) {
+    #mp .box, #place .box, #camp .box, #menu .box { padding: 0 12px 12px; max-height: 96vh; } .hd { margin: 0 -12px 8px; padding: 8px 12px; }
+    #menu button.kit img, #menu button.buy img { width: 60px; height: 45px; }
+    #menu .tmap { zoom: 0.72; } #menu-body > button { padding: 8px 6px; font-size: 12px; }
+    #menu .box { width: min(94vw, 560px); } #camp .maps { max-height: 46vh; } }
   #title { position: fixed; inset: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; justify-content: center;
            background: radial-gradient(ellipse at 50% 45%, rgba(8,10,14,0.15) 0%, rgba(8,10,14,0.55) 55%, rgba(6,8,12,0.92) 100%);
-           font: 14px ui-monospace, Menlo, Consolas, monospace; color: #d8dcd4; text-align: center; overflow-y: auto; }
+           font: 13px ui-monospace, Menlo, Consolas, monospace; color: var(--text); text-align: center; overflow-y: auto; }
   #title img { image-rendering: pixelated; image-rendering: crisp-edges; filter: drop-shadow(0 6px 10px rgba(0,0,0,0.6)); }
-  #title .tag { margin: 2px 0 14px; letter-spacing: 5px; color: #fff0a0; font-size: 13px; text-shadow: 0 2px 4px #000; }
-  #title .menu { display: flex; flex-direction: column; gap: 7px; width: min(84vw, 340px); }
-  #title button { background: rgba(28,36,30,0.92); color: #e8ecd8; border: 1px solid #7c8a6c; padding: 10px 14px; font: 15px ui-monospace, Menlo, Consolas, monospace;
-                  letter-spacing: 2px; cursor: pointer; }
-  #title button.main { background: #8a4a1e; border-color: #f0b050; color: #fff4d0; font-size: 17px; padding: 13px 14px; }
+  #title .tag { margin: 2px 0 14px; letter-spacing: 5px; color: var(--yellow); font-size: 12px; text-shadow: 0 2px 4px #000; }
+  #title .menu { display: flex; flex-direction: column; gap: 6px; width: min(90vw, 440px); }
+  #title button { background: rgba(21,27,33,0.92); color: var(--text); border: 1px solid var(--btn-line); padding: 9px 10px; font: 13px ui-monospace, Menlo, Consolas, monospace;
+                  letter-spacing: 1px; cursor: pointer; transition: background 0.08s; }
+  #title button:hover { background: rgba(49,64,47,0.95); border-color: #8aa07a; }
+  #title button.main { background: var(--main); border-color: var(--main-line); color: #fff4d0; font-size: 16px; letter-spacing: 3px; padding: 12px 14px; }
+  #title button.main:hover { filter: brightness(1.12); background: var(--main); }
   #title button:active { filter: brightness(1.3); }
-  #title button small { display: block; font-size: 11px; color: #f8dca0; letter-spacing: 1px; margin-top: 3px; }
-  #title .row2 { display: flex; gap: 7px; } #title .row2 button { flex: 1; padding: 9px 4px; font-size: 13px; letter-spacing: 1px; }
-  #title .foot { margin-top: 14px; color: #a8b0a0; font-size: 11px; letter-spacing: 1px; text-shadow: 0 1px 3px #000; }
-  @media (max-height: 430px) { #title .tag { margin: 0 0 6px; font-size: 11px; } #title .menu { gap: 5px; } #title button.main { padding: 7px; font-size: 15px; } #title button { padding: 6px 10px; font-size: 13px; } #title .foot { display: none; } #title .row2 button small { display: none; } #title .row2 button { padding: 6px 4px; } }
-  #mp-close { float: right; margin: 0 !important; padding: 2px 9px !important; }
+  #title button small { display: block; font-size: 10px; color: #e8d0a0; letter-spacing: 1px; margin-top: 3px; opacity: 0.85; }
+  #title .row2 { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; } #title .row2 button { padding: 9px 4px; min-height: 40px; }
+  #title #t-mode { border-color: #a8c060; }
+  #title .foot { margin-top: 14px; color: var(--dim); font-size: 11px; letter-spacing: 1px; text-shadow: 0 1px 3px #000; }
+  body.keys #title button[data-hk] { padding-right: 18px !important; white-space: nowrap; }
+  body.keys #title button.main[data-hk] { padding-left: 18px; }
+  @media (max-height: 430px) { #title .tag { margin: 0 0 6px; font-size: 10px; } #title .menu { gap: 4px; } #title button.main { padding: 7px; font-size: 14px; } #title button { padding: 6px 8px; font-size: 12px; } #title .row2 button { min-height: 32px; } #title .foot { display: none; } #title .row2 button small { display: none; } }
 </style>
 </head>
 <body>
@@ -134,10 +166,10 @@
   <div class="menu"><button class="main" id="t-continue">CONTINUE</button><div class="row2"><button id="t-mode">ENEMY: ARMY</button><button id="t-who">WHO'S PLAYING?</button></div><div class="row2"><button id="t-maps">CAMPAIGN MAPS</button><button id="t-surv">SURVIVAL</button><button id="t-multi">PLAY TOGETHER</button></div>
   <div class="row2"><button id="t-free">FREE PLAY</button><button id="t-place">REAL PLACE</button><button id="t-cloud">CLOUD SAVE</button></div></div>
   <div class="foot" id="t-foot"></div></div>
-<div id="menu" hidden><div class="box"><h2>PAUSED</h2><div id="menu-body"></div></div></div>
-<div id="mp" hidden><div class="box"><button id="mp-close" onclick="closeMulti()">X</button><h2>TWO PLAYERS</h2><div id="mp-body"></div></div></div>
-<div id="place" hidden><div class="box"><button id="place-close" onclick="closePlace()">X</button><h2>REAL PLACE</h2><div id="place-body"></div></div></div>
-<div id="camp" hidden><div class="box"><button id="camp-close" onclick="if ($('cloud-token')) { const r = $('cloud-repo').value.trim(), t = $('cloud-token').value.trim(); if (r && t) lsSet(CLOUD_KEY, { repo: r, token: t }); } closeMaps()">X</button><h2>CAMPAIGN</h2><div id="camp-body"></div></div></div>
+<div id="menu" hidden><div class="box"><div class="hd"><h2>PAUSED</h2><button id="menu-close" class="x" onclick="closeMenu()" title="Close (Esc)">&#x2715;</button></div><div id="menu-body"></div></div></div>
+<div id="mp" hidden><div class="box"><div class="hd"><h2>TWO PLAYERS</h2><button id="mp-close" class="x" onclick="closeMulti()" title="Close (Esc)">&#x2715;</button></div><div id="mp-body"></div></div></div>
+<div id="place" hidden><div class="box"><div class="hd"><h2>REAL PLACE</h2><button id="place-close" class="x" onclick="closePlace()" title="Close (Esc)">&#x2715;</button></div><div id="place-body"></div></div></div>
+<div id="camp" hidden><div class="box"><div class="hd"><h2 id="camp-title">CAMPAIGN</h2><button id="camp-close" class="x" title="Close (Esc)" onclick="if ($('cloud-token')) { const r = $('cloud-repo').value.trim(), t = $('cloud-token').value.trim(); if (r && t) lsSet(CLOUD_KEY, { repo: r, token: t }); } closeMaps()">&#x2715;</button></div><div id="camp-body"></div></div></div>
 <div id="rotate">ROTATE YOUR PHONE<br>TO LANDSCAPE</div>
 <script>
 'use strict';
@@ -1058,7 +1090,8 @@ const gdist = (ax, ay, bx, by) => Math.hypot(bx - ax, (by - ay) * 2);        // 
 const gangle = (ax, ay, bx, by) => Math.atan2((by - ay) * 2, bx - ax);
 const angDiff = (a, b) => { let d = (b - a) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; return d; };
 const rand = (a, b) => a + Math.random() * (b - a);
-function sayLocal(text, secs) { message.text = text; message.until = time + (secs || 3); if (typeof soundSay === 'function') soundSay(text); }
+let shopAt = -1;                 // when a button on the BASE screen was last pressed: its answer shows at the top
+function sayLocal(text, secs) { message.text = text; message.until = time + (secs || 3); message.at = time; if (typeof soundSay === 'function') soundSay(text); }
 function say(text, secs) { sayLocal(text, secs); if (role === 'host') netSend({ t: 'say', text, secs }); }       // everyone
 function sayTo(pi, text, secs) { if (pi === me) sayLocal(text, secs); else if (role === 'host') netSend({ t: 'say', text, secs }); }   // one player
 
@@ -3647,8 +3680,10 @@ async function cloudPull(id) {
 
 // --- the MAPS screen ----------------------------------------------------------------------------------------------------------
 function openMaps(why) { keys.clear(); $('camp').hidden = false; mapsScreen(why); }
+function campTitle(t) { const h = $('camp-title'); if (h) h.textContent = t; const b = document.querySelector('#camp .box'); if (b) b.scrollTop = 0; }
 function closeMaps() { $('camp').hidden = true; grabFocus(); }
 function mapsScreen(why) {
+  campTitle('CAMPAIGN');
   const body = $('camp-body'), prog = loadProgress();
   if (role === 'guest') {
     body.innerHTML = '<p>Player 1 picks the map. ' + (campaign ? 'You are playing map ' + campaign.id + ': ' + campaign.spec.name + '.' : '') + '</p>';
@@ -3691,6 +3726,7 @@ function pickMap(id, body) {
   else openBriefing();
 }
 function cloudScreen() {
+  campTitle('CLOUD SAVE');
   const body = $('camp-body'), c = lsGet(CLOUD_KEY) || {};
   const guess = /\.github\.io$/.test(location.hostname) ? location.hostname.split('.')[0] + '/strike-saves' : '';
   body.innerHTML = '<p>Cloud save keeps the campaign in a private GitHub repository, so either player can carry on the battle on any device.</p>' +
@@ -4659,15 +4695,15 @@ function baseShop() {
   let give = '';
   if (players[1 - me].active && mine.length && playerAt(1 - seatOf(me)) >= 0) {
     const kinds = [...new Set(mine.map((e) => e.type))];
-    give = '<p>GIVE TO PLAYER ' + (2 - me) + '</p><div class="row">' + kinds.map((k) => '<button class="give" data-type="' + k + '">1 ' + ENEMY[k].name + '</button>').join('') + '<button class="give" data-type="all">ALL ' + mine.length + '</button></div>';
+    give = '<p class="sec">GIVE TO PLAYER ' + (2 - me) + '</p><div class="row">' + kinds.map((k) => '<button class="give" data-type="' + k + '">1 ' + ENEMY[k].name + '</button>').join('') + '<button class="give" data-type="all">ALL ' + mine.length + '</button></div>';
   }
-  const note = message.until > time && message.text ? '<p class="note">' + message.text + '</p>' : '';     // what just happened (bought, or why not)
-  return note + '<p>YOUR ARMY <span class="fine">' + mine.length + '/' + UNIT_CAP + ' · ORDERS ' + (player.order || 'FOLLOW') + '</span></p><p class="army">' + armySummary(mine) + '</p>' +
-    '<p>BUY <span class="fine">CREDITS ' + cr + ' · NEW UNITS APPEAR AT YOUR NEAREST PAD, MARKED NEW</span></p><div class="shop">' + items + '</div>' + give;
+  const note = shopAt >= 0 && message.at >= shopAt && message.until > time && message.text ? '<p class="note">' + message.text + '</p>' : '';     // the answer to what you just pressed
+  return note + '<p class="sec">YOUR ARMY <span class="fine">' + mine.length + '/' + UNIT_CAP + ' · ORDERS ' + (player.order || 'FOLLOW') + '</span></p><p class="army">' + armySummary(mine) + '</p>' +
+    '<p class="sec">BUY <span class="fine">' + cr + ' CREDITS · NEW UNITS APPEAR AT YOUR NEAREST PAD</span></p><div class="shop">' + items + '</div>' + give;
 }
 function baseShopWire(body) {
-  for (const b of body.querySelectorAll('button.buy')) b.onclick = () => { buy(me, b.dataset.id); setTimeout(openBase, role === 'guest' ? 250 : 0); };
-  for (const b of body.querySelectorAll('button.give')) b.onclick = () => { giveUnits(me, b.dataset.type); setTimeout(openBase, role === 'guest' ? 250 : 0); };
+  for (const b of body.querySelectorAll('button.buy')) b.onclick = () => { shopAt = time; buy(me, b.dataset.id); setTimeout(openBase, role === 'guest' ? 250 : 0); };
+  for (const b of body.querySelectorAll('button.give')) b.onclick = () => { shopAt = time; giveUnits(me, b.dataset.type); setTimeout(openBase, role === 'guest' ? 250 : 0); };
 }
 // What the enemy army shoots when none of you is in range: zombies, and your units.
 function nearestArmyFoe(x, y, range) {
@@ -4681,6 +4717,7 @@ function nearestArmyFoe(x, y, range) {
 }
 // The WHO'S PLAYING screen (title screen): the name this device plays under, and which campaign to carry on.
 function whoScreen(done) {
+  campTitle("WHO'S PLAYING");
   const body = $('camp-body'), cur = currentCrew();
   const list = myName() ? myCrews().map((c) => '<button class="map' + (c === cur ? ' cur' : '') + '" data-crew="' + c + '"><b>' + crewLabel(c) + '</b><span class="tag">' + (c === cur ? 'PLAYING' : '') + '</span></button>').join('') : '';
   body.innerHTML = '<p>Who plays on this device? Each group of names has its own campaign: on your own, with Jake, with a friend. Linking up with someone puts you both in your shared campaign.</p>' +
@@ -4846,7 +4883,7 @@ let towerView = { wall: null, idx: -1 };
 function postShop() {
   const mine = myPosts(me), cr = credits(me);
   const walls = [...new Set(mine.map(wallOf).filter(Boolean))];
-  if (!walls.length) return '<p>YOUR TOWERS</p><p class="fine">No towers yet.</p>';
+  if (!walls.length) return '<p class="sec">YOUR TOWERS</p><p class="fine">No towers yet.</p>';
   // which base to show: the one picked, else the one you're nearest
   const h = helis[me];
   let wl = walls.find((w) => w.id === towerView.wall);
@@ -4886,11 +4923,11 @@ function postShop() {
   const panel = sel ? '<div class="tpanel"><b>' + postName(sel) + '</b><span>' + (sel.alive ? 'ON GUARD: ' + GUARD[sel.type][1] : 'UNMANNED') + '</span>' +
     (!sel.alive ? btn(sel, 'inf', 'RE-MAN') : sel.type === 'inf' ? btn(sel, 'sniper', 'MAKE SNIPER') + btn(sel, 'rocket', 'MAKE ROCKETS') : '<em>TOP RANK</em>') + '</div>'
     : '<div class="tpanel"><span>Tap a tower to upgrade it or put a new man in it.</span></div>';
-  return '<p>YOUR TOWERS <span class="fine">' + mine.filter((p) => p.alive).length + ' OF ' + mine.length + ' MANNED · R RIFLEMAN · S SNIPER · K ROCKETS · ! EMPTY</span></p>' + tabs +
+  return '<p class="sec">YOUR TOWERS <span class="fine">' + mine.filter((p) => p.alive).length + ' OF ' + mine.length + ' MANNED · R RIFLEMAN · S SNIPER · K ROCKETS · ! EMPTY</span></p>' + tabs +
     '<div class="tmap" style="width:' + W0 + 'px;height:' + H0 + 'px"><svg width="' + W0 + '" height="' + H0 + '">' + svg + '</svg>' + dots + '</div>' + panel;
 }
 function postShopWire(body) {
-  for (const b of body.querySelectorAll('button[data-post]')) b.onclick = () => { upgradePost(me, b.dataset.post, +b.dataset.idx); setTimeout(openBase, role === 'guest' ? 250 : 0); };
+  for (const b of body.querySelectorAll('button[data-post]')) b.onclick = () => { shopAt = time; upgradePost(me, b.dataset.post, +b.dataset.idx); setTimeout(openBase, role === 'guest' ? 250 : 0); };
   for (const b of body.querySelectorAll('button.tdot')) b.onclick = () => { towerView.idx = +b.dataset.tidx; openBase(); };
   for (const b of body.querySelectorAll('button.btab')) b.onclick = () => { towerView.wall = +b.dataset.wall; towerView.idx = -1; openBase(); };
 }
@@ -5351,7 +5388,8 @@ function fundingTick() {
 function upgradesScreen(back) {
   const pi = me, name = nameOf(pi), chest = chestOf(name);
   const body = $('camp-body');
-  body.innerHTML = '<p>UPGRADES · ' + name + '</p><p class="fine">WAR CHEST <b>' + chest + '</b> · Clear maps to add your leftover credits; rescues and priority targets pay in too. Upgrades last the whole campaign.</p>' +
+  campTitle('UPGRADES · ' + name);
+  body.innerHTML = '<p>WAR CHEST <b style="color:var(--yellow)">' + chest + '</b></p><p class="fine">Clear maps to add your leftover credits; rescues and priority targets pay in too. Upgrades last the whole campaign.</p>' +
     '<div class="upgs">' + UPGRADES.map((u) => {
       const lvl = upg(pi, u.id), cost = UPG_COST[lvl], top = lvl >= UPG_MAX;
       return '<button class="buy upg" data-k="' + u.id + '"' + (top || chest < cost ? ' disabled' : '') + '><b>' + u.name + ' ' + '■'.repeat(lvl) + '□'.repeat(UPG_MAX - lvl) + '</b><i>' + (top ? 'MAX' : cost) + '</i><span>' + u.info + '</span></button>';
@@ -5390,8 +5428,7 @@ function openBriefing() {
   const spec = campaign.spec;
   body.innerHTML = '<p><b>MAP ' + campaign.id + ': ' + spec.name + '</b> · ' + (MODES[campaign.mode] || campaign.mode) + '</p><p class="fine">' + spec.brief + '</p>' +
     '<ul class="obj">' + objectiveLines().map((l) => '<li>' + l + '</li>').join('') + '</ul>' +
-    '<p class="fine">WAR CHEST ' + chestOf(nameOf(me)) + '</p>' +
-    '<button id="b-go">GO</button><button id="b-upg">UPGRADES</button>';
+    '<button id="b-go">GO</button><button id="b-upg" class="wide">UPGRADES · WAR CHEST ' + chestOf(nameOf(me)) + '</button>';
   $('menu').hidden = false;
   $('b-go').onclick = () => closeMenu();
   $('b-upg').onclick = () => { closeMenu(); openUpgrades(() => { closeMaps(); openBriefing(); }); };
@@ -5402,8 +5439,8 @@ function openBriefing() {
 // keep growing. Count the waves; it ends when your home base is wrecked. Best wave per map is kept in the progress.
 function survivalScreen() {
   const prog = loadProgress(), body = $('camp-body');
-  $('camp').hidden = false; keys.clear();
-  body.innerHTML = '<p>ZOMBIE SURVIVAL</p><p class="fine">Pick a map. No army; every enemy base is already a nest and the nests can\'t be destroyed. Hordes grow 25, 50, 100, 200, 500. Last as long as you can.</p><div class="maps">' +
+  $('camp').hidden = false; keys.clear(); campTitle('ZOMBIE SURVIVAL');
+  body.innerHTML = '<p class="fine">Pick a map. No army; every enemy base is already a nest and the nests can\'t be destroyed. Hordes grow 25, 50, 100, 200, 500. Last as long as you can.</p><div class="maps">' +
     MAPS.map((m) => {
       const open = m.id <= prog.unlocked, best = (prog.surv || {})[m.id];
       return '<button class="map' + (open ? '' : ' locked') + '" data-id="' + m.id + '"' + (open ? '' : ' disabled') + '><span class="n">' + m.id + '</span><b>' + m.name + '</b><span class="tag">' + (open ? (best ? 'BEST: WAVE ' + best : 'NEW') : 'LOCKED') + '</span></button>';
@@ -6704,12 +6741,14 @@ function openMenu() {
   $('menu').querySelector('h2').textContent = 'PAUSED'; $('menu').classList.remove('base');
   const where = campaign ? 'MAP ' + campaign.id + ': ' + campaign.spec.name + (campaign.won ? ' (CLEARED)' : (armyOn() ? ' · ' + world.bases.filter((_, bi) => baseAlive(bi)).length + ' ENEMY BASES LEFT' : '') + (zombiesOn() ? ' · ' + nests.filter((n) => n.alive).length + ' NESTS' : '')) : currentPlace ? currentPlace.name : 'FREE PLAY';
   body.innerHTML = '<p>' + where + '</p>' +
-    '<button id="m-resume">RESUME</button>' + (campaign ? '<button id="m-brief">BRIEFING</button>' : '') + '<button id="m-upg">UPGRADES</button><button id="m-maps">CAMPAIGN MAPS</button>' +
-    '<button id="m-multi">' + (role === 'solo' ? 'PLAY TOGETHER' : NET.connected ? 'TWO PLAYERS: LINKED' : 'TWO PLAYERS: NO LINK') + '</button>' +
+    '<button id="m-resume">RESUME</button>' + (campaign ? '<button id="m-brief">BRIEFING</button><button id="m-upg">UPGRADES</button>' : '<button id="m-upg" class="wide">UPGRADES</button>') +
+    '<button id="m-maps">CAMPAIGN MAPS</button>' +
+    '<button id="m-multi">' + (role === 'solo' ? 'PLAY TOGETHER' : NET.connected ? '2 PLAYERS: LINKED' : '2 PLAYERS: NO LINK') + '</button>' +
     '<button id="m-ctl">CONTROLS: ' + controlMode + '</button>' +
-    '<button id="m-snd">' + soundLabel() + '</button>' +
+    '<button id="m-snd">SOUND</button>' +
     '<button id="m-full">' + (fullscreenOn() ? 'EXIT FULL SCREEN' : 'FULL SCREEN') + '</button>' +
-    '<button id="m-free">FREE PLAY</button><button id="m-place">REAL PLACE</button><button id="m-cloud">CLOUD SAVE: ' + (cloudCfg() ? 'ON' : 'OFF') + '</button>' +
+    '<button id="m-cloud">CLOUD SAVE: ' + (cloudCfg() ? 'ON' : 'OFF') + '</button>' +
+    '<button id="m-free">FREE PLAY</button><button id="m-place">REAL PLACE</button>' +
     (role === 'solo' ? '<button id="m-title">TITLE SCREEN</button>' : '') +
     '<p class="fine">' + (campaign ? 'The battle saves as you play.' : 'Free play and real places are not saved.') + (role === 'solo' ? ' The game is paused.' : ' Two-player games keep running.') + '</p>';
   $('menu').hidden = false;
@@ -6777,10 +6816,10 @@ function openBase() {
   const pad = onOwnPad(me);
   const kits = Object.keys(INF).map((k) => '<button class="kit icon' + (player.inf === k ? ' on' : '') + '" data-kit="' + k + '" title="' + INF[k].name + ': ' + KIT_INFO[k] + '"' + (pad ? '' : ' disabled') + '><img src="' + unitThumb(k === 'rifle' ? 'inf' : k) + '" alt=""><b>' + INF[k].name + '</b><span>' + KIT_INFO[k] + '</span></button>').join('');
   $('menu').querySelector('h2').textContent = 'BASE'; $('menu').classList.add('base');
-  body.innerHTML = '<p>SOLDIER KIT <span class="fine">' + (pad ? '(what you are on foot)' : '(change it on one of your pads)') + '</span></p><div class="kits">' + kits + '</div>' +
+  body.innerHTML = '<p class="sec">SOLDIER KIT <span class="fine">' + (pad ? 'what you are on foot' : 'change it on one of your pads') + '</span></p><div class="kits">' + kits + '</div>' +
     (typeof baseShop === 'function' ? baseShop() : '') + postShop() + '<div class="row"><button id="b-close">BACK TO THE FIGHT</button></div>';
   $('menu').hidden = false;
-  if (pad) for (const b of body.querySelectorAll('button.kit')) b.onclick = () => { setKit(me, b.dataset.kit); openBase(); };
+  if (pad) for (const b of body.querySelectorAll('button.kit')) b.onclick = () => { shopAt = time; setKit(me, b.dataset.kit); openBase(); };
   if (typeof baseShopWire === 'function') baseShopWire(body);
   postShopWire(body);
   $('b-close').onclick = () => closeMenu();
