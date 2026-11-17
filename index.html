@@ -4256,7 +4256,7 @@ function postShopWire(body) { for (const b of body.querySelectorAll('button[data
 
 // --- drawing: the man on top of the tower ----------------------------------------------------------------------------
 // He stands in the cabin: only his head, shoulders and weapon show, between the roof and the cabin wall.
-const POST_LIFT = 40;
+const POST_LIFT = 32;
 function drawPost(p, x, y) {
   const sheet = IMG['soldier' + (ENEMY[p.type].sheet || '') + (p.side === 'army' ? '' : '_f')];
   if (!p.alive) return;
@@ -4266,6 +4266,19 @@ function drawPost(p, x, y) {
   ctx.closePath(); ctx.clip();
   ctx.drawImage(sheet, frame8(p.h) * 32, (p.engaged ? 3 : 1) * 40, 32, 40, x - 16, y - 30 - POST_LIFT, 32, 40);
   ctx.restore();
+  ctx.drawImage(towerRoof(), x - 32, y - 80);         // the roof goes back over him: you see him in the open sides
+}
+// The tower's roof on its own (the green pixels in the top of the sprite), to draw over the man inside.
+let towerRoofCanvas = null;
+function towerRoof() {
+  if (towerRoofCanvas) return towerRoofCanvas;
+  const c = document.createElement('canvas'); c.width = 64; c.height = 40;
+  const g = c.getContext('2d');
+  g.drawImage(IMG.props_small, (P.TOWER % 16) * 64, ((P.TOWER / 16) | 0) * 96, 64, 40, 0, 0, 64, 40);
+  const d = g.getImageData(0, 0, 64, 40), a = d.data;
+  for (let k = 0; k < a.length; k += 4) if (!(a[k + 1] > a[k] + 4 && a[k + 3] > 0)) a[k + 3] = 0;   // keep the green roof only
+  g.putImageData(d, 0, 0);
+  return (towerRoofCanvas = c);
 }
 
 // ---------------------------------------------------------------------------
