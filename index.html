@@ -772,9 +772,10 @@ function generateWorld(seed, real, spec) {
       const loop = (k) => [[r.x - k, r.y - k], [r.x + r.s - 1 + k, r.y - k], [r.x + r.s - 1 + k, r.y + r.s - 1 + k], [r.x - k, r.y + r.s - 1 + k]];
       for (let k = 0; k < G.tanks; k++) w.spawns.push({ type: armorType(k + bi, sp.garrison), loop: loop(2.6), at: [0, 2, 1][k], base: bi });
       w.spawns.push({ type: raiderType(bi), loop: loop(4.2), at: 3, base: bi });                       // a bike or buggy on the outer ring
-      for (let k = 0; k < G.inf; k++) w.spawns.push({ type: infType(k + bi, sp.garrison), loop: loop(1.2), at: k % 4, frac: (k * 0.37) % 1, base: bi });
+      for (let k = 0; k < G.inf; k++) w.spawns.push(sp.garrison >= 2 && (k === 1 || k === 2) ? { type: k === 1 ? 'medic' : 'eng', x: r.x + (k === 1 ? 6 : 9), y: r.y + (k === 1 ? 6 : 9), base: bi }      // a medic and an engineer stay inside
+        : { type: infType(k + bi, sp.garrison), loop: loop(1.2), at: k % 4, frac: (k * 0.37) % 1, base: bi });
     } else {
-      for (const [x, y] of [[7, 4], [6, 6], [3, 8], [9, 9]]) w.spawns.push({ type: infType(x + y + bi, sp.garrison), x: r.x + x, y: r.y + y, base: bi });
+      [[7, 4], [6, 6], [3, 8], [9, 9]].forEach(([x, y], k) => w.spawns.push({ type: sp.garrison >= 2 && k === 1 ? 'medic' : sp.garrison >= 2 && k === 2 ? 'eng' : infType(x + y + bi, sp.garrison), x: r.x + x, y: r.y + y, base: bi }));   // a medic and an engineer from garrison 2
       w.spawns.push({ type: 'aa', x: r.x + 7, y: r.y + 6, base: bi });
     }
     w.pickups.push({ type: 'ammo', x: r.x + 7, y: r.y + 5 }, { type: 'fuel', x: r.x + 2, y: r.y + 10 });
@@ -1219,7 +1220,7 @@ function generateWorld(seed, real, spec) {
       }
     }
     if (!sides) { const dx = SIZE / 2 - (r.x + 6), dy = SIZE / 2 - (r.y + 6); sides = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'e' : 'w') : (dy > 0 ? 's' : 'n'); }
-    for (const [x, y, idx] of baseWalls(r, sides)) { const i = y * SIZE + x; w.small[i] = idx; w.wallOwner[i] = id; }
+    for (const [x, y, idx] of baseWalls(r, sides)) { const i = y * SIZE + x; w.small[i] = idx; w.wallOwner[i] = id; (w.wallOrig || (w.wallOrig = new Map())).set(i, idx); }
     w.walls.push({ id, r, sides });
   }
 
@@ -1806,6 +1807,7 @@ function drawParticles(ox, oy) {
 // --- damage ---------------------------------------------------------------------------------
 function targetPos(t) { return { x: cellX(t.x, t.y), y: cellY(t.x, t.y) }; }
 function damageAt(x, y, blast, dmg, pi, byEnemy) {
+  if (typeof suppress === 'function') suppress(x, y, blast, dmg >= 25 ? 0.5 : 0.15);
   if (typeof damageCivs === 'function') damageCivs(x, y, blast, dmg, pi, byEnemy);
   if (!byEnemy) for (const e of enemies) if (e.alive && !(e.side >= 0) && gdist(x, y, e.x, e.y) < blast + ENEMY[e.type].radius) { e.hp -= dmg * garMult(e); if (e.hp <= 0) { hitBy(e, x, y, dmg, blast); killEnemy(e, pi); } }
   if (!byEnemy && typeof nests !== 'undefined') for (const n of nests) if (n.alive && gdist(x, y, n.x, n.y) < blast + 40) { n.hp -= dmg; if (n.hp <= 0) destroyNest(n, pi); }
@@ -2077,7 +2079,7 @@ function enemyFire(e, pi) {
   const def0 = ENEMY[e.type], heli = helis[pi], rk = def0.rockets && time > (e.rnext || 0), def = rk ? ENEMY.bikerkt : def0;
   if (rk) e.rnext = time + def0.rockets * rand(0.8, 1.2);
   const lead = 0.28;
-  const x1 = heli.x + heli.vx * lead, y1 = heli.y + heli.vy * 0.5 * lead;
+  const sw = (e.supp || 0) * 36, x1 = heli.x + heli.vx * lead + rand(-sw, sw), y1 = heli.y + heli.vy * 0.5 * lead + rand(-sw, sw) * 0.5;   // pinned down: wild shots
   const a = aimOf(e), c = Math.cos(a), s = Math.sin(a), reach = isFoot(e.type) ? 6 : 24;
   const x0 = e.x + c * reach, y0 = e.y + s * reach * 0.5;
   if (def.minRange && gdist(e.x, e.y, heli.x, heli.y) < def.minRange) return;            // artillery can't hit what's on top of it
@@ -2119,6 +2121,7 @@ function updateShots(dt) {
     } else if (s.foe) {                                // army fire at a zombie (or at your units)
       const lk = LOOK(s.kind);
       if (lk === 'tank' || lk === 'rocket' || lk === 'arty') explosion(s.x1, s.y1, 4, lk === 'arty' ? 36 : 18, true); else if (lk === 'flame') puff('fire', s.x1, s.y1, 4, { r: 6, life: 0.5, vz: 20 }); else puff('dust', s.x1, s.y1, 2, { r: 2, life: 0.4, c: '#8a7a5a', a: 0.4 });
+      if (authority() && s.foe.alive && isFoot(s.foe.type)) suppress(s.foe.x, s.foe.y, 8, 0.2);
       if (authority() && s.foe.alive && gdist(s.foe.x, s.foe.y, s.x1, s.y1) < (lk === 'arty' ? 80 : lk === 'tank' || lk === 'rocket' ? 40 : 22)) { s.foe.hp -= s.dmg * (s.foe.post ? 0.5 : garMult(s.foe)); if (s.foe.hp <= 0) { if (s.foe.post) killPost(s.foe, -1); else { hitBy(s.foe, s.x0, s.y0, lk === 'tank' || lk === 'rocket' || lk === 'arty' ? 120 : 6, lk === 'arty' ? 80 : 40, true); killEnemy(s.foe, -1); } } }
     } else if (s.siege || s.pi < 0) {
       explosion(s.x1, s.y1, 6, 22, true);
@@ -2188,7 +2191,8 @@ function updateEnemies(dt) {
     if (def.foot) {                                    // soldiers take to buildings when there is shooting
       if (e.gar >= 0) { garrisonedUnit(e, def, dt, windowTarget(e, def, zOn)); continue; }
       const threat = e.engaged || e.hp < def.hp || (e.zfoe && e.zfoe.alive);
-      if (garrisonThink(e, def, dt, threat)) continue;
+      if (!SUPPORT.has(e.type) && garrisonThink(e, def, dt, threat)) continue;     // medics and engineers stay out at work
+      if (armyTactics(e, def, dt)) continue;          // cover, medics, engineers, towers, digging in
     }
     const [pi, d] = nearestPlayer(e.x, e.y, e.type === 'aa', def.groundOnly);          // AA guns cannot depress onto ground targets
     if (zOn && e.type !== 'aa' && !def.air && !(pi >= 0 && d < def.range)) {       // nobody of yours in range: shoot the zombies
@@ -2200,7 +2204,7 @@ function updateEnemies(dt) {
         const to = gangle(e.x, e.y, z.x, z.y);
         if (isTank(e.type)) e.th = rotateToward(e.th, to, 2.0 * dt); else e.h = rotateToward(e.h, to, 6 * dt);
         e.engaged = true;
-        if (e.cool <= 0 && Math.abs(angDiff(isTank(e.type) ? e.th : e.h, to)) < 0.3) { armyFireAtZombie(e, z); e.cool = def.rate * rand(0.8, 1.25); }
+        if (e.cool <= 0 && Math.abs(angDiff(isTank(e.type) ? e.th : e.h, to)) < 0.3) { armyFireAtZombie(e, z); e.cool = def.rate * rand(0.8, 1.25) * suppMult(e); }
         continue;
       }
     }
@@ -2231,7 +2235,7 @@ function updateEnemies(dt) {
       }
     } else if (e.goal) moveWave(e, dt);
     else if (e.base === -2) siegeHome(e, dt);
-    else if (e.loop) {
+    else if (e.loop && !e.halt) {
       const wp = e.loop[e.next];
       const want = gangle(e.x, e.y, wp.x, wp.y);
       e.h = rotateToward(e.h, want, (isTank(e.type) ? 1.3 : 5) * dt);
@@ -2242,7 +2246,7 @@ function updateEnemies(dt) {
       if (isTank(e.type)) { e.th = rotateToward(e.th, e.h, 1.5 * dt); if (Math.random() < dt * 5) puff('dust', e.x - Math.cos(e.h) * 16, e.y - Math.sin(e.h) * 8, 1, { r: 3, life: 0.9, c: '#a89878', a: 0.28, vz: 4 }); }
     }
     const aim = isTank(e.type) ? e.th : e.h;
-    if (e.engaged && e.cool <= 0 && Math.abs(angDiff(aim, toHeli)) < 0.25) { enemyFire(e, pi); e.cool = def.rate * rand(0.8, 1.25); }
+    if (e.engaged && e.cool <= 0 && Math.abs(angDiff(aim, toHeli)) < 0.25) { enemyFire(e, pi); e.cool = def.rate * rand(0.8, 1.25) * suppMult(e); }
   }
 }
 
@@ -2643,6 +2647,7 @@ function drawDynamicRow(list, ox, oy0) {
       else {
         const row = e.engaged ? 3 : ((e.loop || e.goal || e.moving) ? [0, 1, 2, 1][Math.floor(e.phase) % 4] : 1);
         ctx.drawImage(soldierSheet(e), frame8(e.h) * 32, row * 40, 32, 40, x - 16, y - 30, 32, 40);
+        if (e.type === 'medic' || e.type === 'eng') drawRole(e.type, x, y);
         if (e.type === 'general') {                     // the general: a gold star over his head
           const b = Math.round(Math.sin(time * 3) * 1.5); ctx.fillStyle = '#ffe040';
           ctx.fillRect(x - 3, y - 38 + b, 7, 1); ctx.fillRect(x, y - 41 + b, 1, 7); ctx.fillRect(x - 1, y - 39 + b, 3, 3);
@@ -3914,7 +3919,7 @@ function buildFriendlyBase(bi, opts) {
   for (const [x, y] of [[2, 8], [4, 9], [1, 10]]) small(x, y, P.TENT);
   small(6, 10, P.CRATES); small(7, 9, P.CRATES + 1); small(8, 4, P.FLAG_HOME); small(10, 5, P.RADAR);
   const wl = (world.walls || []).find((q) => q.id === bi);
-  for (const [x, y, idx] of baseWalls(world.bases[bi], wl ? wl.sides : 'nsew')) world.small[y * SIZE + x] = idx;
+  for (const [x, y, idx] of baseWalls(world.bases[bi], wl ? wl.sides : 'nsew')) { world.small[y * SIZE + x] = idx; (world.wallOrig || (world.wallOrig = new Map())).set(y * SIZE + x, idx); }
   // clear away what is left of the enemy here: wrecks and bodies on the site
   const site = (x, y) => onSite(bi, x, y);
   for (const e of enemies) if (!e.alive && site(e.x, e.y)) e.gone = true;
@@ -4026,6 +4031,7 @@ function launchWave() {
   const goals = mine.map((bi) => ({ zone: bi, d: Math.hypot(zoneCentre(bi).cx - o.cx, zoneCentre(bi).cy - o.cy) }));
   goals.push({ zone: -1, d: Math.hypot(world.home.x - o.cx, world.home.y - o.cy) * 1.15 });
   if (world.home2 && players[1].active) goals.push({ zone: -3, d: Math.hypot(world.home2.x - o.cx, world.home2.y - o.cy) * 1.15 });
+  for (const g of goals) g.d *= 1 + zoneDefence(g.zone) / 6;     // smarter: the weakest of your bases, not just the nearest
   goals.sort((a, b) => a.d - b.d);
   let goal = null, byLand = false;
   for (const g of goals.slice(0, 3)) {
@@ -4046,15 +4052,25 @@ function launchWave() {
     spots.push([x, y]);
   }
   spots.sort(() => Math.random() - 0.5);
+  // come at the base from its weakest side (fewest towers manned, fences already down), some of them round the flank
+  const side = byLand ? weakSide(goal.zone, o) : null, flank = side ? flankPoint(o, side) : null;
+  let nGround = 0, scouted = false;
+  const hasScout = byLand && inf > 1 && make.hangar;
   const add = (type, cx, cy) => {
     const e = makeEnemy(type, cellX(cx, cy), cellY(cx, cy), -1);
     setGoal(e, goal.zone);
+    if (side && !ENEMY[type].air) {
+      e.goal = { zone: goal.zone, cx: side.cx, cy: side.cy, x: cellX(side.cx, side.cy), y: cellY(side.cx, side.cy) };
+      if (flank && nGround % 2 === 1) e.flank = flank;
+      if (!scouted && (type === 'bike' || type === 'buggy')) { e.scout = true; scouted = true; } else if (hasScout) e.waitT = time + 9;     // the raider goes ahead to scout; the rest follow on
+      nGround++;
+    }
     enemies.push(e);
     if (role === 'host') netSend({ t: 'enew', a: packExtra(e) });
   };
   let k = 0;
   for (let j = 0; j < tanks && k < spots.length; j++, k++) add(armorType(j + campaign.waves, campaign.spec.garrison), spots[k][0], spots[k][1]);
-  for (let j = 0; j < inf && k < spots.length; j++, k++) add(j === 0 && inf > 1 && make.hangar ? raiderType(campaign.waves) : infType(j + campaign.waves * 3, campaign.spec.garrison), spots[k][0], spots[k][1]);   // a raider leads the infantry
+  for (let j = 0; j < inf && k < spots.length; j++, k++) add(j === 0 && inf > 1 && make.hangar ? raiderType(campaign.waves) : j === 1 && inf > 3 && campaign.id >= 4 ? 'medic' : j === 2 && inf > 4 && campaign.id >= 8 ? 'eng' : infType(j + campaign.waves * 3, campaign.spec.garrison), spots[k][0], spots[k][1]);   // a raider leads the infantry; a medic (and an engineer) go along
   for (let j = 0; j < air; j++) add('gunship', o.cx + rand(-3, 3), o.cy + rand(-3, 3));
   campaign.waves++;
   recountTargets();
@@ -4062,7 +4078,24 @@ function launchWave() {
 }
 // Called from updateEnemies for a unit that is marching somewhere.
 function moveWave(e, dt) {
-  const def = ENEMY[e.type], g = e.goal;
+  const def = ENEMY[e.type];
+  if (e.waitT > time) { e.engaged = false; return; }                       // waiting for the scout to go ahead
+  if (e.scout && !e.scoutSaid && gdist(e.x, e.y, e.goal.x, e.goal.y) < 700) { e.scoutSaid = true; say('ENEMY SCOUT SPOTTED NEAR ' + (e.goal.zone >= 0 ? 'A FORWARD BASE' : 'HOME BASE') + '. AN ATTACK IS COMING', 4); }
+  if (e.flank) {                                                      // swing out round the side first
+    const fl = e.flank;
+    if (gdist(e.x, e.y, fl.x, fl.y) < 110) e.flank = null;
+    else {
+      const cx = Math.round(mapX(e.x, e.y)), cy = Math.round(mapY(e.x, e.y)), f = flowTo(fl.cx, fl.cy, 'a'), here = f[cy * SIZE + cx];
+      if (here < 65535 && here > 0) {
+        let best = here, bx = cx, by = cy;
+        for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const v = f[(cy + oy) * SIZE + cx + ox]; if (v < best) { best = v; bx = cx + ox; by = cy + oy; } }
+        unitMove(e, def, cellX(bx, by), cellY(bx, by), dt, false);
+        return;
+      }
+      e.flank = null;
+    }
+  }
+  const g = e.goal;
   const arrive = () => { e.base = -2; e.siegeZone = g.zone; e.goal = null; };    // -2: besieging one of your bases
   let want;
   if (def.air) {
@@ -4282,6 +4315,45 @@ function cloudScreen() {
       $('cloud-status').textContent = 'That did not work (' + String(err.message || err) + '). Check the repository name and that the key can read and write its contents.';
     }
   };
+}
+
+// --- smarter counter-attacks ---------------------------------------------------------------------------------------------
+// How well a base of yours is held: manned towers count 2, your units on it 1 each.
+function zoneDefence(zone) {
+  const r = zone >= 0 ? world.bases[zone] : zone === -3 ? world.homeBase2 : world.homeBase;
+  if (!r) return 0;
+  const inR = (x, y) => { const cx = mapX(x, y), cy = mapY(x, y); return cx >= r.x - 3 && cx <= r.x + 15 && cy >= r.y - 3 && cy <= r.y + 15; };
+  let n = 0;
+  for (const p of posts) if (p.alive && p.side !== 'army' && inR(p.x, p.y)) n += 2;
+  for (const e of enemies) if (e.alive && e.side >= 0 && inR(e.x, e.y)) n++;
+  return n;
+}
+// The side of the base to hit: the one with fewest guns on it and the most fence already down, leaning to the near side.
+function weakSide(zone, o) {
+  const r = zone >= 0 ? world.bases[zone] : zone === -3 ? world.homeBase2 : world.homeBase;
+  if (!r) return null;
+  const f = flowTo(zone >= 0 ? r.x + 6 : homeOf(zone).x, zone >= 0 ? r.y + 6 : homeOf(zone).y, 'a');
+  let best = null, bs = 1e9;
+  for (const [cx, cy] of [[r.x + 6, r.y - 3], [r.x + 6, r.y + 14], [r.x - 3, r.y + 6], [r.x + 14, r.y + 6]]) {
+    if (cx < 2 || cy < 2 || cx >= SIZE - 2 || cy >= SIZE - 2 || f[cy * SIZE + cx] >= 65535 || cellBlocks('tank', cx, cy)) continue;
+    let guns = 0, holes = 0;
+    for (const p of posts) if (p.alive && p.side !== 'army' && Math.hypot(mapX(p.x, p.y) - cx, mapY(p.x, p.y) - cy) < 8) guns++;
+    if (world.wallOrig) for (let y = cy - 6; y <= cy + 6; y++) for (let x = cx - 6; x <= cx + 6; x++) { const i = y * SIZE + x, w = world.wallOrig.get(i); if (w !== undefined && world.small[i] !== w) holes++; }
+    const sc = guns * 3 - Math.min(4, holes) + Math.hypot(cx - o.cx, cy - o.cy) / 12;
+    if (sc < bs) { bs = sc; best = { cx, cy }; }
+  }
+  return best;
+}
+// A point out to one side of the straight way in, for half the wave to swing round by.
+function flankPoint(o, side) {
+  const dx = side.cx - o.cx, dy = side.cy - o.cy, L = Math.hypot(dx, dy) || 1, mx = o.cx + dx * 0.6, my = o.cy + dy * 0.6;
+  const fg = flowTo(side.cx, side.cy, 'a');
+  for (const sgn of Math.random() < 0.5 ? [1, -1] : [-1, 1]) for (const k of [14, 10, 7]) {
+    const px = Math.round(mx - dy / L * k * sgn), py = Math.round(my + dx / L * k * sgn);
+    if (px < 3 || py < 3 || px >= SIZE - 3 || py >= SIZE - 3) continue;
+    if (fg[py * SIZE + px] < 65535 && !cellBlocks('tank', px, py)) return { cx: px, cy: py, x: cellX(px, py), y: cellY(px, py) };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -4928,7 +5000,7 @@ function coverAt(x, y) {
   }
   return 1;
 }
-const garMult = (e) => (e.gar >= 0 ? 0.35 - 0.15 * ((forts.get(e.gar) || { fort: 0 }).fort) : Math.min(coverAt(e.x, e.y), pitCover(e.x, e.y)));
+const garMult = (e) => (e.gar >= 0 ? 0.35 - 0.15 * ((forts.get(e.gar) || { fort: 0 }).fort) : Math.min(coverAt(e.x, e.y), pitCover(e.x, e.y), e.cover && e.cover.in ? 0.6 : 1));
 // Saved with the battle: the sandbags already up.
 const packForts = () => [...forts.values()].filter((f) => f.fort > 0.05).map((f) => [f.i, +f.fort.toFixed(2)]);
 function unpackForts(list) { for (const [i, v] of list || []) if (garrisonable(i)) { const f = fortAt(i); f.fort = Math.max(f.fort, v); } }
@@ -5094,6 +5166,7 @@ function buy(pi, id) {
     if (type === 'tank') e.hp = 450;                 // yours are the newer model
     else if (isGroundVeh(type)) e.hp = Math.round(ENEMY[type].hp * 1.6);
     e.hp = Math.round(e.hp * (1 + 0.2 * upg(pi, 'units')));          // TOUGH UNITS upgrade
+    e.maxHp = e.hp;
     if (e.order === 'HOLD' || e.order === 'ATTACK') { e.squad = 0; assignPost(e); }
     e.fresh = time + 8;                              // marked NEW for a few seconds so you can see what you got
     enemies.push(e);
@@ -5168,7 +5241,7 @@ function allyHit(s) {
   const f = s.foe;
   if (!f) return;
   if (f.post) { if (f.alive) { f.hp -= s.dmg * 0.5; if (f.hp <= 0) killPost(f, s.pi); } }
-  else if (f.type) { if (f.alive && gdist(f.x, f.y, s.x1, s.y1) < 26) { f.hp -= s.dmg * garMult(f); if (f.hp <= 0) killEnemy(f, s.pi); } }
+  else if (f.type) { if (f.alive && isFoot(f.type)) suppress(f.x, f.y, 6, 0.2); if (f.alive && gdist(f.x, f.y, s.x1, s.y1) < 26) { f.hp -= s.dmg * garMult(f); if (f.hp <= 0) killEnemy(f, s.pi); } }
   else if (f.age !== undefined) { if (f.alive) { f.hp -= s.dmg; if (f.hp <= 0) destroyNest(f, s.pi); } }
   else if (f.base !== undefined && f.alive) { f.hp -= s.dmg; if (f.hp <= 0) destroyTarget(f, s.pi); }
 }
@@ -5346,6 +5419,7 @@ function unitMove(e, def, tx, ty, dt, fast) {
   if (isTank(e.type) && Math.random() < dt * 5) puff('dust', e.x - Math.cos(e.h) * 16, e.y - Math.sin(e.h) * 8, 1, { r: 3, life: 0.9, c: '#a89878', a: 0.28, vz: 4 });
 }
 function updateFriends(dt) {
+  updateTactics(dt);
   squadClock -= dt;
   if (squadClock <= 0) { squadClock = 1; formSquads(); }
   updatePits(dt);
@@ -5366,15 +5440,22 @@ function updateFriends(dt) {
       garrisonedUnit(e, def, dt, tg ? { x: tg.x, y: tg.y, fire: () => unitFire(e, def, tg) } : null);
       continue;
     }
+    if (isFoot(e.type)) {                                // pinned down: take cover; medics and engineers at work
+      e.supp = Math.max(0, (e.supp || 0) - 0.35 * dt);
+      e.tclock = (e.tclock === undefined ? rand(0, 0.5) : e.tclock) - dt;
+      const think = e.tclock <= 0; if (think) e.tclock = 0.5;
+      if (SUPPORT.has(e.type) && supportThink(e, def, dt, think)) continue;
+      if (order !== 'FOLLOW' && coverThink(e, def, dt, think)) continue;
+    }
     const posted = (order === 'HOLD' || (order === 'ATTACK' && !e.squad));          // holding, or waiting for a squad
     if (posted && !e.dpos) assignPost(e);
-    if (isFoot(e.type) && order !== 'FOLLOW' && !posted && garrisonThink(e, def, dt, !!tg)) continue;
+    if (isFoot(e.type) && !SUPPORT.has(e.type) && order !== 'FOLLOW' && !posted && garrisonThink(e, def, dt, !!tg)) continue;
     // shoot
     if (tg) {
       const to = gangle(e.x, e.y, tg.x, tg.y);
       if (isTank(e.type)) e.th = rotateToward(e.th, to, 2.2 * dt); else e.h = rotateToward(e.h, to, 7 * dt);
       e.engaged = true;
-      if (e.cool <= 0 && Math.abs(angDiff(isTank(e.type) ? e.th : e.h, to)) < 0.3) { unitFire(e, def, tg); e.cool = def.rate * rand(0.8, 1.2); }
+      if (e.cool <= 0 && Math.abs(angDiff(isTank(e.type) ? e.th : e.h, to)) < 0.3) { unitFire(e, def, tg); e.cool = def.rate * rand(0.8, 1.2) * suppMult(e); }
       if (!isTank(e.type) && order !== 'FOLLOW') continue;          // soldiers stand and fight; tanks keep rolling
     } else e.engaged = false;
     // move
@@ -5503,6 +5584,194 @@ function whoScreen(done) {
   for (const b of body.querySelectorAll('button[data-crew]')) b.onclick = () => { if (players[1].active) return; switchTo(b.dataset.crew); done(); };
   $('who-back').onclick = () => done();
   if (!myName()) setTimeout(() => $('who-name').focus(), 50);
+}
+
+// --- tactics for every army: cover and suppression, digging in, medics and engineers ------------------------------------
+// Suppression: anything landing close pins soldiers down (e.supp 0..1, wears off at 0.35 a second): they fire half as
+// fast at full suppression, aim worse, and, when it passes 0.5, run for cover: a clear spot close by with something
+// solid between it and the shooting, or a sandbag pit / ring. In cover (e.cover.in) they take 40% less damage.
+// The enemy digs in: base guards dig sandbag pits facing you as soon as you come near; a tower whose guard was
+// killed gets a soldier from that base walking over to man it again (after 25 s). Medics heal soldiers of their own
+// side (and you, on foot); engineers mend vehicles, broken fences and gates, and damaged buildings. Both sides have them.
+const SUPPORT = new Set(['medic', 'eng']);
+ENEMY.medic = { name: 'MEDIC', hp: 12, range: 300, rate: 1.5, dmg: 2, hit: 30, speed: 34, shot: 1200, score: 60, radius: 10, z: 9, boom: 8, foot: true };
+ENEMY.eng = { name: 'ENGINEER', hp: 14, range: 300, rate: 1.5, dmg: 2, hit: 30, speed: 32, shot: 1200, score: 70, radius: 10, z: 9, boom: 8, foot: true };
+SHOP.splice(5, 0, { id: 'medic', name: 'MEDIC', cost: 90, units: ['medic'], info: 'heals soldiers near him, and you on foot' },
+  { id: 'eng', name: 'ENGINEER', cost: 120, units: ['eng'], info: 'mends vehicles, fences, gates and buildings' });
+const maxHpOf = (e) => e.maxHp || (e.maxHp = Math.max(e.hp, e.side >= 0 ? (isFoot(e.type) ? ENEMY[e.type].hp : unitMaxHp(e.type)) : ENEMY[e.type].hp));
+function suppress(x, y, r, amt) {
+  for (const e of enemies) {
+    if (!e.alive || !isFoot(e.type) || isZed(e.type) || e.gar >= 0 || Math.abs(e.x - x) > r + 50) continue;
+    if (gdist(x, y, e.x, e.y) < r + 50) e.supp = Math.min(1, (e.supp || 0) + amt);
+  }
+}
+const suppMult = (e) => 1 + (e.supp || 0);
+// Where the shooting is coming from, as this soldier sees it.
+function threatOf(e) {
+  if (e.side >= 0) return e.tg && e.tg.ref.alive !== false ? { x: e.tg.x, y: e.tg.y } : null;
+  const [pi, d] = nearestPlayer(e.x, e.y, false, false);
+  if (pi >= 0 && d < 800) return { x: helis[pi].x, y: helis[pi].y };
+  return e.zfoe && e.zfoe.alive ? { x: e.zfoe.x, y: e.zfoe.y } : null;
+}
+function findCover(e, tx, ty) {
+  const who = e.side >= 0 ? 'p' : 'a', sp0 = typeof spotAt === 'function' ? spotAt(e.x, e.y) : -1;
+  let best = null, bd = 1e9;
+  for (const r of [0, 26, 52, 84, 120]) for (let k = 0; k < (r ? 12 : 1); k++) {
+    const a = k * Math.PI / 6, x = e.x + Math.cos(a) * r, y = e.y + Math.sin(a) * r * 0.5;
+    if (posBlocks('foot', x, y, who) || (sp0 >= 0 && spotAt(x, y) !== sp0)) continue;
+    if (gdist(x, y, tx, ty) < gdist(e.x, e.y, tx, ty) - 40) continue;              // not toward the guns
+    let good = pitCover(x, y) < 1 || coverAt(x, y) < 1;
+    if (!good) {
+      const b = gangle(x, y, tx, ty);
+      for (const s of [16, 28]) {
+        const cx = Math.round(mapX(x + Math.cos(b) * s, y + Math.sin(b) * s * 0.5)), cy = Math.round(mapY(x + Math.cos(b) * s, y + Math.sin(b) * s * 0.5)), i = cy * SIZE + cx;
+        if (world.ground[i] > T.SHALLOW && cellBlocks('foot', cx, cy)) { good = true; break; }
+      }
+    }
+    if (good && r < bd) { bd = r; best = { x, y }; }
+  }
+  return best;
+}
+// Run for cover when pinned down. True while running there (do nothing else this frame).
+function coverThink(e, def, dt, think) {
+  if (e.cover && time > e.cover.until) e.cover = null;
+  if (!e.cover && think && (e.supp || 0) > 0.5 && pitCover(e.x, e.y) >= 1 && coverAt(e.x, e.y) >= 1) {
+    const t = threatOf(e), c = t && findCover(e, t.x, t.y);
+    e.cover = c ? { x: c.x, y: c.y, until: time + 10, in: false } : { none: true, until: time + 2 };
+  }
+  if (!e.cover || e.cover.none) return false;
+  if (gdist(e.x, e.y, e.cover.x, e.cover.y) > 6) { e.cover.in = false; unitMove(e, def, e.cover.x, e.cover.y, dt, true); return true; }
+  e.cover.in = true;
+  if ((e.supp || 0) > 0.25) e.cover.until = Math.max(e.cover.until, time + 3);
+  return false;
+}
+// --- medics and engineers ---------------------------------------------------------------------------------------------------
+const ofSide = (e, o) => (e.side >= 0 ? o.side === e.side : !(o.side >= 0) && !isZed(o.type));
+function supportJob(e) {
+  let best = null, bd = 280;
+  const consider = (d, job) => { if (d < bd) { bd = d; best = job; } };
+  if (e.type === 'medic') {
+    for (const o of enemies) if (o !== e && o.alive && isFoot(o.type) && ofSide(e, o) && o.hp < maxHpOf(o) - 0.5) consider(gdist(e.x, e.y, o.x, o.y), { k: 'heal', o });
+    if (e.side >= 0) for (let pi = 0; pi < 2; pi++) if (players[pi].active && !players[pi].dead && seatOf(pi) === e.side && players[pi].kind === 'foot' && players[pi].armor < VEH.foot.armor && pIns(pi) === insideAt(e.x, e.y)) consider(gdist(e.x, e.y, helis[pi].x, helis[pi].y) - 40, { k: 'healp', pi });
+    return best;
+  }
+  for (const o of enemies) if (o !== e && o.alive && isGroundVeh(o.type) && ofSide(e, o) && o.hp < maxHpOf(o) - 1) consider(gdist(e.x, e.y, o.x, o.y), { k: 'fixv', o });
+  if (world.wallOrig) {                                       // a broken fence or gate of ours close by
+    const who = e.side >= 0 ? 'p' : 'a', mx = Math.round(mapX(e.x, e.y)), my = Math.round(mapY(e.x, e.y));
+    for (let y = my - 8; y <= my + 8; y++) for (let x = mx - 8; x <= mx + 8; x++) {
+      const i = y * SIZE + x, o = world.wallOrig.get(i);
+      if (o === undefined || world.small[i] === o || wallSide(i) !== who || world.large[i] >= 0) continue;
+      consider(gdist(e.x, e.y, cellX(x, y), cellY(x, y)) + 20, { k: 'wall', i, sp: o });
+    }
+  }
+  if (!(e.side >= 0)) {
+    for (const t of world.targets) if (t.alive && t.base === e.base && t.hp < (t.max || t.hp)) { const p = targetPos(t); consider(gdist(e.x, e.y, p.x, p.y) * 0.4, { k: 'fixt', t }); }     // anywhere on his own base
+  } else {
+    const mx = Math.round(mapX(e.x, e.y)), my = Math.round(mapY(e.x, e.y));
+    for (let y = my - 7; y <= my + 7; y++) for (let x = mx - 7; x <= mx + 7; x++) {
+      const i = y * SIZE + x;
+      if (propHp[i] > 0 && world.large[i] >= 0 && world.large[i] < 100 && !isRuin(world.large[i]) && wallSide(i) !== 'a' && ownCell(i)) consider(gdist(e.x, e.y, cellX(x, y), cellY(x, y)) - 20, { k: 'fixb', i });
+    }
+  }
+  return best;
+}
+function ownCell(i) {                                       // inside one of your bases
+  const x = i % SIZE, y = (i / SIZE) | 0, in_ = (r) => r && x >= r.x && x < r.x + 12 && y >= r.y && y < r.y + 12;
+  return in_(world.homeBase) || in_(world.homeBase2) || (campaign && campaign.built.some((bi) => in_(world.bases[bi])));
+}
+// True while busy with a job (walking to it or at work).
+function supportThink(e, def, dt, think) {
+  if (!e.job ? think : e.jobT < time) {                      // look again every 2 s; the same job keeps its progress
+    const nj = supportJob(e), key = (j) => j && j.k + ':' + (j.o ? enemies.indexOf(j.o) : j.t ? world.targets.indexOf(j.t) : j.i !== undefined ? j.i : j.pi);
+    const keep = nj && e.job && key(nj) === key(e.job);
+    if (!keep) { e.jBest = 1e9; e.jBestT = time; }
+    e.job = keep ? e.job : nj; e.jobT = time + 2;
+  }
+  const j = e.job; if (!j) return false;
+  let x, y, reach = 34;
+  if (j.k === 'heal' || j.k === 'fixv') { if (!j.o.alive || j.o.hp >= maxHpOf(j.o)) { e.job = null; return false; } x = j.o.x; y = j.o.y; reach = j.k === 'fixv' ? 50 : 44; }
+  else if (j.k === 'healp') { const pl = players[j.pi]; if (pl.dead || pl.kind !== 'foot' || pl.armor >= VEH.foot.armor) { e.job = null; return false; } x = helis[j.pi].x; y = helis[j.pi].y; reach = 50; }
+  else if (j.k === 'wall') { if (world.small[j.i] === j.sp) { e.job = null; return false; } x = cellX(j.i % SIZE, (j.i / SIZE) | 0); y = cellY(j.i % SIZE, (j.i / SIZE) | 0); reach = 40; }
+  else if (j.k === 'fixt') { if (!j.t.alive || j.t.hp >= j.t.max) { e.job = null; return false; } const p = targetPos(j.t); x = p.x; y = p.y; reach = j.t.large ? 125 : 50; }
+  else if (j.k === 'fixb') { if (propHp[j.i] <= 0 || world.large[j.i] < 0) { e.job = null; return false; } x = cellX(j.i % SIZE, (j.i / SIZE) | 0); y = cellY(j.i % SIZE, (j.i / SIZE) | 0); reach = 58; }
+  const dj = gdist(e.x, e.y, x, y);
+  if (dj < (e.jBest || 1e9) - 2) { e.jBest = dj; e.jBestT = time; }
+  const close = dj <= reach || (dj < reach + 100 && time - e.jBestT > 1.5);     // as close as he can get (round a building, a fence)
+  if (!close) { unitMove(e, def, x, y, dt, true); return true; }
+  e.h = rotateToward(e.h, gangle(e.x, e.y, x, y), 6 * dt); e.engaged = false; e.phase += dt * 3;
+  if (j.k === 'heal') j.o.hp = Math.min(maxHpOf(j.o), j.o.hp + 5 * dt);
+  else if (j.k === 'healp') players[j.pi].armor = Math.min(VEH.foot.armor, players[j.pi].armor + 8 * dt);
+  else if (j.k === 'fixv') j.o.hp = Math.min(maxHpOf(j.o), j.o.hp + 25 * dt);
+  else if (j.k === 'fixt') j.t.hp = Math.min(j.t.max, j.t.hp + 18 * dt);
+  else if (j.k === 'fixb') propHp[j.i] = Math.max(0, propHp[j.i] - 30 * dt);
+  else if (j.k === 'wall') {
+    j.p = (j.p || 0) + dt;
+    if (j.p > 3) {
+      if (enemies.some((o) => o.alive && Math.round(mapX(o.x, o.y)) === j.i % SIZE && Math.round(mapY(o.x, o.y)) === ((j.i / SIZE) | 0))) { j.p = 2; return true; }   // somebody's standing in the gap
+      world.small[j.i] = j.sp; propHp[j.i] = 0; cellChanged(j.i); e.job = null;
+    }
+  }
+  if (Math.random() < dt * 6) { if (e.type === 'medic') puff('dust', x + rand(-6, 6), y + rand(-3, 3), rand(6, 14), { r: 1.5, life: 0.6, c: '#80f080', a: 0.8, vz: 20 }); else puff('spark', x + rand(-8, 8), y + rand(-4, 4), rand(2, 10), { vx: rand(-20, 20), vy: rand(-10, 10), vz: rand(20, 60), life: 0.4 }); }
+  return true;
+}
+// --- the army's side of it: called from updateEnemies for its foot soldiers. True = handled this frame. ---------------------
+function armyTactics(e, def, dt) {
+  e.supp = Math.max(0, (e.supp || 0) - 0.35 * dt);
+  if (e.base === -9) return false;                            // the guards inside buildings keep their own ways
+  e.tclock = (e.tclock === undefined ? rand(0, 0.5) : e.tclock) - dt;
+  const think = e.tclock <= 0; if (think) e.tclock = 0.5;
+  if (e.moving) e.moving = false;
+  if (e.reman >= 0) {                                         // off to man a tower
+    const p = posts.find((q) => q.i === e.reman);
+    if (!p || p.alive || world.small[p.i] !== P.TOWER || (e.remanT = (e.remanT || 0) + dt) > 40) { if (p) p.reman = false; e.reman = -1; return false; }
+    if (gdist(e.x, e.y, p.x, p.y) > 30) { unitMove(e, def, p.x, p.y, dt, true); return true; }
+    p.alive = true; p.type = e.type === 'sniper' || e.type === 'rocket' ? e.type : 'inf'; p.hp = ENEMY[p.type].hp * 3; p.reman = false; p.deadT = 0;
+    e.alive = false; e.gone = true; if (role === 'host') netSend({ t: 'egone', k: enemies.indexOf(e) });
+    postChanged(p);
+    return true;
+  }
+  if (SUPPORT.has(e.type) && supportThink(e, def, dt, think)) return true;
+  if (coverThink(e, def, dt, think)) return true;
+  if (think && e.base >= 0 && !e.goal && !SUPPORT.has(e.type)) armyDig(e);
+  return false;
+}
+// Base guards dig in, facing you, once you're close.
+function armyDig(e) {
+  const [pi, d] = nearestPlayer(e.x, e.y, false, false);
+  if (e.loop) e.halt = pi >= 0 && d < (e.halt ? 1400 : 1000);      // patrols stop where they are while you're about
+  if (pi < 0 || d > 1100) return;
+  let pt = pits.find((q) => gdist(q.x, q.y, e.x, e.y) < 10);
+  if (!pt) {
+    if (pits.length >= 120 || pitCover(e.x, e.y) < 1 || posBlocks('foot', e.x, e.y, 'a')) return;
+    pt = { x: e.x, y: e.y, a: gangle(e.x, e.y, helis[pi].x, helis[pi].y), v: 0 }; pits.push(pt);
+  }
+  if (pt.v >= 1) return;
+  pt.v = Math.min(1, pt.v + 0.5 / 6);
+  if ((pt.v >= 1 || pt.v <= 0.09) && role === 'host') netSend({ t: 'pit', p: packPit(pt) });
+}
+// Once a second (host): send a soldier to every enemy tower that has stood empty 25 s; note the buildings' full strength.
+let tacClock = 0;
+function updateTactics(dt) {
+  tacClock -= dt;
+  if (tacClock > 0) return;
+  tacClock = 1;
+  for (const t of world.targets) if (t.max === undefined) t.max = t.hp;
+  if (!armyOn()) return;
+  for (const p of posts) {
+    if (p.side !== 'army' || p.alive || p.reman || world.small[p.i] !== P.TOWER) { if (p.alive) p.deadT = 0; continue; }
+    if (!p.deadT) { p.deadT = time; continue; }
+    if (time - p.deadT < 25) continue;
+    const wl = wallOf(p), bi = wl ? wl.id : -1;
+    if (bi < 0 || !baseAlive(bi)) continue;
+    let best = null, bd = 800;
+    for (const e of enemies) if (e.alive && e.base === bi && isFoot(e.type) && !SUPPORT.has(e.type) && e.type !== 'general' && !(e.gar >= 0) && !(e.reman >= 0)) { const d = gdist(e.x, e.y, p.x, p.y); if (d < bd) { bd = d; best = e; } }
+    if (best) { best.reman = p.i; best.remanT = 0; best.loop = null; p.reman = true; }
+  }
+}
+// A red cross over a medic, a spanner over an engineer.
+function drawRole(type, x, y) {
+  if (type === 'medic') { ctx.fillStyle = '#f4f0e8'; ctx.fillRect(x - 3, y - 41, 7, 7); ctx.fillStyle = '#d02820'; ctx.fillRect(x - 2, y - 38, 5, 1); ctx.fillRect(x, y - 40, 1, 5); }
+  else if (type === 'eng') { ctx.fillStyle = '#f0c030'; ctx.fillRect(x - 3, y - 40, 2, 2); ctx.fillRect(x + 2, y - 40, 2, 2); ctx.fillRect(x - 2, y - 39, 5, 2); ctx.fillRect(x, y - 37, 1, 4); }
 }
 
 // ---------------------------------------------------------------------------
