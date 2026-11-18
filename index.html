@@ -1104,6 +1104,7 @@ let corpses = [];                // fallen soldiers of your side: { x, y, h, t }
 function initCombat() {
   enemies = []; shots = []; parts = []; emitters = []; pickups = []; cars = []; pending = []; vehicles = []; corpses = [];
   if (typeof forts !== 'undefined') forts.clear();
+  if (typeof pits !== 'undefined') pits = [];
   if (typeof acid !== 'undefined') acid = [];
   if (typeof posts !== 'undefined') posts = [];
   shake = 0;
@@ -2077,6 +2078,7 @@ function collectDynamics(ox, oy) {
   const vis = (x, y) => x > ox - 120 && x < ox + W + 120 && y > oy - 120 && y < oy + H + 160;
   for (const p of posts) if (p.alive && vis(p.x, p.y)) add(p.y + 1, { k: 'post', p });
   for (const f of forts.values()) if (f.fort > 0 && vis(f.x, f.y)) for (const p of fortPieces(f)) add(p.y, { k: 'fort', p });
+  for (const q of pits) if (q.v > 0 && vis(q.x, q.y)) for (const p of pitPieces(q)) add(p.y, { k: 'fort', p });
   for (const e of enemies) if (e.type !== 'gunship' && !e.gone && !(e.alive && e.gar >= 0) && vis(e.x, e.y) && !(isZed(e.type) && !e.alive && time - (e.fallT || 0) > 40)) add(e.y, { k: 'enemy', e });
   if (typeof nests !== 'undefined') for (const n of nests) if (vis(n.x, n.y)) add(n.y, { k: 'nest', n });
   for (const c of corpses) if (vis(c.x, c.y)) add(c.y - 1, { k: 'corpse', c });
@@ -2457,7 +2459,7 @@ function netHello() {                                 // everything a (re)joinin
   const aliveCars = new Set(cars.map((c) => c.id));
   netSend({
     t: 'hello', seed, place: currentPlace, tl: targetsLeft, who: myName(), crew: currentCrew(),
-    camp: campaign ? { id: campaign.id, elapsed: campaign.elapsed, wave: campaign.waveClock, waves: campaign.waves, won: campaign.won, built: campaign.built, owners: campaign.owners, fo: packForts(), po: packPosts(), seats: campaign.seats, cr: campaign.credits, mode: campaign.mode, run: campaign.run, nests: nests.map(packNest), sw: campaign.survWave || 0, rs: packRescued() } : null,
+    camp: campaign ? { id: campaign.id, elapsed: campaign.elapsed, wave: campaign.waveClock, waves: campaign.waves, won: campaign.won, built: campaign.built, owners: campaign.owners, fo: packForts(), pt: packPits(), po: packPosts(), seats: campaign.seats, cr: campaign.credits, mode: campaign.mode, run: campaign.run, nests: nests.map(packNest), sw: campaign.survWave || 0, rs: packRescued() } : null,
     ex: zc() ? enemies.slice(zc().nSpawn).map((e) => packExtra(e)) : [], prog: loadProgress(),
     zfree: !campaign && freeZ ? { mode: freeZ.mode, nests: nests.map(packNest), n: freeZ.nSpawn } : null, po: campaign ? null : packPosts(),
     cells: [...changedCells].map((i) => [i, world.small[i], world.large[i]]),
@@ -2564,7 +2566,7 @@ function netMessage(m) {
         campaign.nSpawn = enemies.length;
         for (const a of m.ex) enemies.push(unpackExtra(a));
         nests = (m.camp.nests || []).map(unpackNest); unpackRescued(m.camp.rs);
-        unpackForts(m.camp.fo);
+        unpackForts(m.camp.fo); unpackPits(m.camp.pt);
         if (m.camp.seats) campaign.seats = m.camp.seats.slice();
         if (m.camp.cr) campaign.credits = m.camp.cr.slice();
         if (m.camp.owners) campaign.owners = Object.assign({}, m.camp.owners);
@@ -2597,6 +2599,7 @@ function netMessage(m) {
       }
       break;
     }
+    case 'pit': unpackPit(m.p); break;
     case 'enew': { const e = unpackExtra(m.a); if (e.side >= 0 && m.k === undefined) e.fresh = time + 8; if (m.k !== undefined && m.k < enemies.length) enemies[m.k] = e; else enemies.push(e); break; }
     case 'post': unpackPosts([m.a]); break;
     case 'seats': if (campaign) campaign.seats = m.seats.slice(); break;
@@ -3237,14 +3240,14 @@ function captureState() {
     tk: world.targets.map((t, k) => (t.alive ? -1 : k)).filter((k) => k >= 0),
     pk: pickups.map((p, k) => (p.taken ? k : -1)).filter((k) => k >= 0),
     extra: enemies.slice(n).filter((e) => e.alive).map(packExtra),
-    mode: campaign.mode, run: campaign.run, nests: nests.map(packNest), cr: (campaign.credits || []).map(Math.floor), own: campaign.owners || {}, seats: campaign.seats || ['', ''], fo: packForts(), po: packPosts(), rs: packRescued(), pr: campaign.prio || '', cb: campaign.cbon || [0, 0],
+    mode: campaign.mode, run: campaign.run, nests: nests.map(packNest), cr: (campaign.credits || []).map(Math.floor), own: campaign.owners || {}, seats: campaign.seats || ['', ''], fo: packForts(), pt: packPits(), po: packPosts(), rs: packRescued(), pr: campaign.prio || '', cb: campaign.cbon || [0, 0],
   };
 }
-const packExtra = (e) => [e.type, Math.round(e.x), Math.round(e.y), e.base, e.goal ? e.goal.zone : -9, Math.round(e.hp), e.siegeZone === undefined ? -1 : e.siegeZone, e.side >= 0 ? e.side : -1, e.order || ''];
+const packExtra = (e) => [e.type, Math.round(e.x), Math.round(e.y), e.base, e.goal ? e.goal.zone : -9, Math.round(e.hp), e.siegeZone === undefined ? -1 : e.siegeZone, e.side >= 0 ? e.side : -1, e.order || '', e.squad || 0];
 function unpackExtra(a) {
-  const [type, x, y, base, gz, hp, sz, side, order] = a;
+  const [type, x, y, base, gz, hp, sz, side, order, squad] = a;
   const e = makeEnemy(type, x, y, base);
-  if (side >= 0) { e.side = side; e.order = order || 'HOLD'; e.slot = Math.floor(Math.random() * 12); if (e.order === 'HOLD') e.hold = { x, y }; }
+  if (side >= 0) { e.side = side; e.order = order || 'HOLD'; e.slot = Math.floor(Math.random() * 12); e.squad = squad || 0; if (e.squad >= squadSeq) squadSeq = e.squad + 1; }
   e.siegeZone = sz === undefined ? -1 : sz;
   e.hp = hp || e.hp;
   if (gz !== -9) setGoal(e, gz);
@@ -3279,7 +3282,7 @@ function applyState(st) {
   if (st.cr && st.cr.length === 2) campaign.credits = st.cr.slice();
   campaign.owners = Object.assign({}, st.own || {});
   if (st.seats) campaign.seats = st.seats.slice();
-  unpackForts(st.fo);
+  unpackForts(st.fo); unpackPits(st.pt);
   campaign.savedPo = st.po;
   unpackRescued(st.rs); if (st.pr) campaign.prio = st.pr; if (st.cb) campaign.cbon = st.cb.slice();
   campaign.elapsed = st.elapsed || 0; campaign.waveClock = st.wave || 0; campaign.waves = st.waves || 0; campaign.won = !!st.won;
@@ -4376,7 +4379,7 @@ function coverAt(x, y) {
   }
   return 1;
 }
-const garMult = (e) => (e.gar >= 0 ? 0.35 - 0.15 * ((forts.get(e.gar) || { fort: 0 }).fort) : coverAt(e.x, e.y));
+const garMult = (e) => (e.gar >= 0 ? 0.35 - 0.15 * ((forts.get(e.gar) || { fort: 0 }).fort) : Math.min(coverAt(e.x, e.y), pitCover(e.x, e.y)));
 // Saved with the battle: the sandbags already up.
 const packForts = () => [...forts.values()].filter((f) => f.fort > 0.05).map((f) => [f.i, +f.fort.toFixed(2)]);
 function unpackForts(list) { for (const [i, v] of list || []) if (garrisonable(i)) { const f = fortAt(i); f.fort = Math.max(f.fort, v); } }
@@ -4541,7 +4544,7 @@ function buy(pi, id) {
     if (type === 'tank') e.hp = 450;                 // yours are the newer model
     else if (isGroundVeh(type)) e.hp = Math.round(ENEMY[type].hp * 1.6);
     e.hp = Math.round(e.hp * (1 + 0.2 * upg(pi, 'units')));          // TOUGH UNITS upgrade
-    if (e.order === 'HOLD') e.hold = { x: e.x, y: e.y };
+    if (e.order === 'HOLD' || e.order === 'ATTACK') { e.squad = 0; assignPost(e); }
     e.fresh = time + 8;                              // marked NEW for a few seconds so you can see what you got
     enemies.push(e);
     if (role === 'host') netSend({ t: 'enew', a: packExtra(e) });
@@ -4554,9 +4557,14 @@ function buy(pi, id) {
 function setOrders(pi, o) {
   if (!authority()) { players[pi].order = o; netSend({ t: 'order', o }); return; }
   players[pi].order = o;
-  for (const e of myUnits(pi)) { e.order = o; e.hold = o === 'HOLD' ? { x: e.x, y: e.y } : null; e.agoal = null; }
-  const n = myUnits(pi).length;
-  sayTo(pi, n ? n + ' UNIT' + (n > 1 ? 'S' : '') + ': ' + o + (o === 'ATTACK' ? ' THE NEAREST ENEMY' : '') : 'NO UNITS. BUY SOME AT YOUR BASE', 2);
+  for (const e of myUnits(pi)) {
+    const keep = o !== 'FOLLOW' && e.dpos && !e.squad;          // HOLD <-> ATTACK: anyone already on a post stays on it
+    e.order = o; e.agoal = null; e.squad = 0;
+    if (!keep) { e.hold = null; e.dpos = null; if (o !== 'FOLLOW') assignPost(e); }
+  }
+  if (o === 'ATTACK') formSquads();
+  const n = myUnits(pi).length, wait = o === 'ATTACK' ? squadLine(seatOf(pi)) : '';
+  sayTo(pi, !n ? 'NO UNITS. BUY SOME AT YOUR BASE' : o === 'HOLD' ? n + ' UNIT' + (n > 1 ? 'S' : '') + ': HOLD. MANNING THE NEAREST BASE' : o === 'ATTACK' ? 'ATTACK: FULL SQUADS MOVE OUT' + (wait ? '. WAITING: ' + wait : '') : n + ' UNIT' + (n > 1 ? 'S' : '') + ': FOLLOW', 4);
 }
 function cycleOrders(pi) { setOrders(pi, ORDERS[(ORDERS.indexOf(players[pi].order || 'FOLLOW') + 1) % ORDERS.length]); }
 // Hand one unit of a kind (or one of each, 'all') to the other player.
@@ -4565,7 +4573,7 @@ function giveUnits(pi, type) {
   const toSeat = 1 - seatOf(pi), to = playerAt(toSeat), list = myUnits(pi).filter((e) => type === 'all' || e.type === type);
   if (to < 0) return;
   const moved = type === 'all' ? list : list.slice(0, 1);
-  for (const e of moved) { e.side = toSeat; e.order = players[to].order || 'FOLLOW'; e.hold = null; e.agoal = null; if (e.gar >= 0) leaveBuilding(e); }
+  for (const e of moved) { e.side = toSeat; e.order = players[to].order || 'FOLLOW'; e.hold = null; e.dpos = null; e.squad = 0; e.agoal = null; if (e.gar >= 0) leaveBuilding(e); }
   if (moved.length) { sayTo(pi, 'GAVE ' + moved.length + ' UNIT' + (moved.length > 1 ? 'S' : ''), 2); sayTo(to, 'YOU WERE GIVEN ' + moved.length + ' UNIT' + (moved.length > 1 ? 'S' : ''), 3); }
 }
 
@@ -4622,6 +4630,128 @@ function attackGoal(e) {
   if (best) { best.x = cellX(best.cx - 0.5, best.cy - 0.5); best.y = cellY(best.cx - 0.5, best.cy - 0.5); }
   return best;
 }
+
+// --- HOLD: defensive positions round the nearest of your bases ----------------------------------------------------
+// Each base has a ranked list of posts: a vehicle covering every gate from just inside it, soldiers flanking the
+// gates, the corners, the fence sides without a gate, then a second line. HOLD sends each unit to the best free post of
+// its kind at the base nearest it. Soldiers dig a sandbag fighting position at their post (half damage once it's up).
+const postCache = new Map();
+function defencePosts(p) {
+  const r = padRect(p); if (!r) return { foot: [], veh: [], arty: [] };
+  const wl = (world.walls || []).find((q) => q.id === p.zone), sides = wl ? wl.sides : 'nsew';
+  const key = p.zone + ':' + sides + ':' + r.x + ':' + r.y;
+  if (postCache.has(key)) return postCache.get(key);
+  const mid = r.x + 5.5, mdy = r.y + 5.5;
+  // (u, v) in the base's own frame: u along the side (0..11), v inward from the fence (0 = fence line)
+  const at = (sd, u, v) => (sd === 'n' ? [r.x + u, r.y + v] : sd === 's' ? [r.x + u, r.y + 11 - v] : sd === 'w' ? [r.x + v, r.y + u] : [r.x + 11 - v, r.y + u]);
+  const snap = (cx, cy, kind) => {                     // the nearest open cell to a wanted spot
+    for (let d = 0; d <= 2; d++) for (let y = cy - d; y <= cy + d; y++) for (let x = cx - d; x <= cx + d; x++) {
+      if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) !== d) continue;
+      if (x <= r.x || y <= r.y || x >= r.x + 11 || y >= r.y + 11) continue;          // inside the fence
+      if (!cellBlocks(kind, x, y, 'p') && !(Math.abs(x - mid) < 1.2 && Math.abs(y - mdy) < 1.2)) return [x, y];     // keep the pad clear
+    }
+    return null;
+  };
+  const out = { foot: [], veh: [], arty: [] }, seen = new Set();
+  const push = (list, kind, sd, u, v) => {
+    const s = snap(...at(sd, u, v).map(Math.round), kind); if (!s) return;
+    const k = s[0] + ',' + s[1]; if (seen.has(k)) return; seen.add(k);
+    list.push({ cx: s[0], cy: s[1], x: cellX(s[0], s[1]), y: cellY(s[0], s[1]), face: gangle(cellX(mid, mdy), cellY(mid, mdy), cellX(s[0], s[1]), cellY(s[0], s[1])), id: list.length });
+  };
+  const gates = [...'nsew'].filter((sd) => sides.includes(sd)), walls = [...'nsew'].filter((sd) => !sides.includes(sd));
+  for (const sd of gates) push(out.veh, 'tank', sd, 5.5, 2);                       // a vehicle in every gateway
+  for (const sd of gates) { push(out.foot, 'foot', sd, 3, 1); push(out.foot, 'foot', sd, 8, 1); }      // soldiers either side
+  for (const [u, v] of [[1, 1], [10, 1]]) push(out.foot, 'foot', 'n', u, v), push(out.foot, 'foot', 's', u, v);   // the corners
+  for (const sd of walls) { push(out.foot, 'foot', sd, 3, 1); push(out.foot, 'foot', sd, 8, 1); }    // fence sides with no gate
+  for (const sd of gates) { push(out.veh, 'tank', sd, 3, 3); push(out.veh, 'tank', sd, 8, 3); push(out.foot, 'foot', sd, 4.5, 2); push(out.foot, 'foot', sd, 6.5, 3); }
+  for (const sd of walls) { push(out.veh, 'tank', sd, 5.5, 3); push(out.foot, 'foot', sd, 5.5, 1); }
+  for (const sd of 'nsew') push(out.arty, 'tank', sd, 5.5, 4);                     // artillery back by the pad
+  for (const sd of 'nsew') for (const u of [2, 4, 7, 9]) push(out.foot, 'foot', sd, u, 2);          // a second line
+  for (const sd of 'nsew') for (const u of [2, 9]) push(out.veh, 'tank', sd, u, 4);
+  postCache.set(key, out);
+  return out;
+}
+const postKind = (type) => (type === 'arty' ? 'arty' : isFoot(type) ? 'foot' : 'veh');
+function assignPost(e) {
+  const pads = friendlyPads().filter((p) => p.owner === -1 || p.owner === e.side || !twoUp());
+  pads.sort((a, b) => gdist(e.x, e.y, a.x, a.y) - gdist(e.x, e.y, b.x, b.y));
+  const p = pads[0]; if (!p) return;
+  const posts = defencePosts(p), kind = postKind(e.type);
+  const taken = new Set(enemies.filter((o) => o !== e && o.alive && o.side === e.side && o.dpos && o.dpos.zone === p.zone).map((o) => o.dpos.kind + o.dpos.id));
+  let list = posts[kind];
+  if (kind === 'arty' && list.every((q) => taken.has('arty' + q.id))) list = posts.veh;
+  if (kind === 'veh' && list.every((q) => taken.has('veh' + q.id))) list = posts.arty;
+  const q = list.find((s) => !taken.has((list === posts[kind] ? kind : kind === 'arty' ? 'veh' : 'arty') + s.id));
+  if (!q) { e.dpos = { zone: p.zone, kind: 'none', id: -1, x: p.x + rand(-60, 60), y: p.y + rand(-30, 30), face: rand(-3, 3) }; e.hold = { x: e.dpos.x, y: e.dpos.y }; return; }
+  e.dpos = { zone: p.zone, kind: list === posts[kind] ? kind : kind === 'arty' ? 'veh' : 'arty', id: q.id, x: q.x, y: q.y, face: q.face };
+  e.hold = { x: q.x, y: q.y };
+}
+// Sandbag fighting positions dug at soldiers' posts. pits: [{ x, y, a (facing), v (0..1 built) }]
+let pits = [];
+function updatePits(dt) {
+  for (const e of enemies) {
+    if (!e.alive || !(e.side >= 0) || !e.dpos || e.dpos.kind !== 'foot' || e.tg || gdist(e.x, e.y, e.dpos.x, e.dpos.y) > 14) continue;
+    let pt = pits.find((q) => gdist(q.x, q.y, e.dpos.x, e.dpos.y) < 8);
+    if (!pt) { if (pits.length >= 80) continue; pt = { x: e.dpos.x, y: e.dpos.y, a: e.dpos.face, v: 0 }; pits.push(pt); }
+    if (pt.v >= 1) continue;
+    pt.v = Math.min(1, pt.v + dt / 5);
+    if ((pt.v >= 1 || pt.v < dt / 5 + 0.001) && role === 'host') netSend({ t: 'pit', p: packPit(pt) });
+  }
+}
+const packPit = (q) => [Math.round(q.x), Math.round(q.y), +q.a.toFixed(2), +q.v.toFixed(2)];
+function unpackPit(a) {
+  const [x, y, ang, v] = a, q = pits.find((o) => gdist(o.x, o.y, x, y) < 8);
+  if (q) q.v = Math.max(q.v, v); else pits.push({ x, y, a: ang, v });
+}
+const packPits = () => pits.filter((q) => q.v > 0.05).map(packPit);
+function unpackPits(list) { pits = []; for (const a of list || []) unpackPit(a); }
+function pitCover(x, y) { for (const q of pits) if (q.v >= 0.5 && Math.abs(x - q.x) < 16 && Math.abs(y - q.y) < 9) return 0.5; return 1; }
+// A crescent of sandbags on the outward side: pieces in the same form as the building rings, so they draw the same way.
+function pitPieces(q) {
+  const out = [], n = 5, shown = Math.round(n * Math.min(1, q.v * 1.25)), R = 13;
+  for (let k = 0; k < shown; k++) {
+    const a0 = q.a - 1.25 + (k / n) * 2.5, a1 = q.a - 1.25 + ((k + 1) / n) * 2.5;
+    const ax = q.x + Math.cos(a0) * R, ay = q.y + Math.sin(a0) * R * 0.5, bx = q.x + Math.cos(a1) * R, by = q.y + Math.sin(a1) * R * 0.5;
+    out.push({ x: (ax + bx) / 2, y: (ay + by) / 2, sb: true, ax, ay, bx, by, k });
+  }
+  return out;
+}
+
+// --- ATTACK: squads by type ----------------------------------------------------------------------------------------
+// On ATTACK, units first hold at the base (on their defensive posts) until there are enough of their kind for a squad:
+// 5 soldiers, 4 tanks (any tracked: tanks, flame and rocket tanks, artillery), 3 raiders (bikes, buggies). Then that squad
+// moves out together; the rest keep waiting for more. e.squad: 0 waiting, > 0 the squad marching.
+const SQUADS = { inf: { n: 5, name: 'INFANTRY' }, armour: { n: 4, name: 'TANK' }, raid: { n: 3, name: 'RAIDER' } };
+const squadClass = (type) => (isFoot(type) ? 'inf' : TRACKED.has(type) ? 'armour' : 'raid');
+let squadSeq = 1, squadClock = 0;
+function squadCounts(side) {
+  const c = { inf: 0, armour: 0, raid: 0 };
+  for (const e of enemies) if (e.alive && e.side === side && e.order === 'ATTACK' && !e.squad) c[squadClass(e.type)]++;
+  return c;
+}
+function formSquads() {
+  for (const side of [0, 1]) for (const cls in SQUADS) {
+    const wait = enemies.filter((e) => e.alive && e.side === side && e.order === 'ATTACK' && !e.squad && squadClass(e.type) === cls);
+    while (wait.length >= SQUADS[cls].n) {
+      const id = squadSeq++, group = wait.splice(0, SQUADS[cls].n);
+      for (const e of group) { e.squad = id; e.dpos = null; e.hold = null; e.agoal = null; }
+      const pi = playerAt(side);
+      if (pi >= 0) sayTo(pi, SQUADS[cls].name + ' SQUAD OF ' + group.length + ' MOVING OUT', 3);
+    }
+  }
+}
+function squadLine(side) {
+  const c = squadCounts(side), parts = [];
+  for (const cls in SQUADS) if (c[cls]) parts.push(SQUADS[cls].name + ' ' + c[cls] + '/' + SQUADS[cls].n);
+  return parts.join(' · ');
+}
+// Marching: the flow field to the target; anyone well ahead of the rest of the squad waits for them.
+function marchTo(e, def, g, dt) {
+  const cx = Math.round(mapX(e.x, e.y)), cy = Math.round(mapY(e.x, e.y)), f = flowTo(g.cx, g.cy, e.side >= 0 ? 'p' : 'a'), here = f[cy * SIZE + cx];
+  let best = here, bx = cx, by = cy;
+  for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const v = f[(cy + oy) * SIZE + cx + ox]; if (v < best) { best = v; bx = cx + ox; by = cy + oy; } }
+  unitMove(e, def, best < here ? cellX(bx, by) : g.x, best < here ? cellY(bx, by) : g.y, dt, false);
+}
 // One step toward (tx, ty). Slides along walls (building sides run along the grid), walks out of anything it ended
 // up inside, and if it has not got any closer for a second and a half it follows the flow field round the obstacle.
 const GRID_DIRS = [Math.PI / 4, 3 * Math.PI / 4, -3 * Math.PI / 4, -Math.PI / 4, 0, Math.PI / 2, Math.PI, -Math.PI / 2];
@@ -4660,6 +4790,9 @@ function unitMove(e, def, tx, ty, dt, fast) {
   if (isTank(e.type) && Math.random() < dt * 5) puff('dust', e.x - Math.cos(e.h) * 16, e.y - Math.sin(e.h) * 8, 1, { r: 3, life: 0.9, c: '#a89878', a: 0.28, vz: 4 });
 }
 function updateFriends(dt) {
+  squadClock -= dt;
+  if (squadClock <= 0) { squadClock = 1; formSquads(); }
+  updatePits(dt);
   for (const e of enemies) {
     if (!e.alive || !(e.side >= 0)) continue;
     const def = ENEMY[e.type], opi = playerAt(e.side), owner = opi >= 0 ? players[opi] : null, oh = opi >= 0 ? helis[opi] : null;
@@ -4677,7 +4810,9 @@ function updateFriends(dt) {
       garrisonedUnit(e, def, dt, tg ? { x: tg.x, y: tg.y, fire: () => unitFire(e, def, tg) } : null);
       continue;
     }
-    if (isFoot(e.type) && order !== 'FOLLOW' && garrisonThink(e, def, dt, !!tg)) continue;
+    const posted = (order === 'HOLD' || (order === 'ATTACK' && !e.squad));          // holding, or waiting for a squad
+    if (posted && !e.dpos) assignPost(e);
+    if (isFoot(e.type) && order !== 'FOLLOW' && !posted && garrisonThink(e, def, dt, !!tg)) continue;
     // shoot
     if (tg) {
       const to = gangle(e.x, e.y, tg.x, tg.y);
@@ -4699,18 +4834,25 @@ function updateFriends(dt) {
         if (best < here) unitMove(e, def, cellX(bx, by), cellY(bx, by), dt, true);
         else unitMove(e, def, tx, ty, dt, true);
       } else if (d > 26) unitMove(e, def, tx, ty, dt, false);
-    } else if (order === 'HOLD') {
-      if (e.hold && gdist(e.x, e.y, e.hold.x, e.hold.y) > 30) unitMove(e, def, e.hold.x, e.hold.y, dt, false);
+    } else if (posted) {
+      const h = e.hold;
+      if (h) {
+        const d = gdist(e.x, e.y, h.x, h.y);
+        if (d > 220) marchTo(e, def, { cx: Math.round(mapX(h.x, h.y)), cy: Math.round(mapY(h.x, h.y)), x: h.x, y: h.y }, dt);       // a long way off: find the way in
+        else if (d > (isFoot(e.type) ? 6 : 14)) unitMove(e, def, h.x, h.y, dt, d > 90);
+        else if (e.dpos && !tg) e.h = rotateToward(e.h, e.dpos.face, (isTank(e.type) ? 1.2 : 4) * dt);   // in position: face out
+      }
     } else {
       e.agClock = (e.agClock || 0) - dt;
       if (!e.agoal || e.agClock <= 0) { e.agoal = attackGoal(e); e.agClock = 4; }
       const g = e.agoal;
-      if (g && gdist(e.x, e.y, g.x, g.y) > 120) {
-        const cx = Math.round(mapX(e.x, e.y)), cy = Math.round(mapY(e.x, e.y)), f = flowTo(g.cx, g.cy, e.side >= 0 ? 'p' : 'a'), here = f[cy * SIZE + cx];
-        let best = here, bx = cx, by = cy;
-        for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const v = f[(cy + oy) * SIZE + cx + ox]; if (v < best) { best = v; bx = cx + ox; by = cy + oy; } }
-        unitMove(e, def, best < here ? cellX(bx, by) : g.x, best < here ? cellY(bx, by) : g.y, dt, false);
+      let wait = false;
+      if (g && e.squad) {                                // keep the squad together: the ones out in front wait
+        let sx = 0, sy = 0, n = 0;
+        for (const o of enemies) if (o.alive && o.squad === e.squad) { sx += o.x; sy += o.y; n++; }
+        if (n > 1) { sx /= n; sy /= n; wait = gdist(e.x, e.y, sx, sy) > 150 && gdist(e.x, e.y, g.x, g.y) < gdist(sx, sy, g.x, g.y); }
       }
+      if (g && !wait && gdist(e.x, e.y, g.x, g.y) > 120) marchTo(e, def, g, dt);
     }
     if (isTank(e.type) && !tg) e.th = rotateToward(e.th, e.h, 1.5 * dt);
   }
