@@ -296,6 +296,66 @@ function interiorSlots() {
   for (let y = EDGE_MARGIN; y + FLOOR <= SIZE - EDGE_MARGIN; y += FLOOR + 1) { out.push([2, y]); out.push([SIZE - 2 - FLOOR, y]); }
   return out;
 }
+const STYLE = { hq: P.WALL_PLASTER, bunker: P.WALL_CONC, site: P.WALL_BRICK, tower: P.WALL_PLASTER, lair: P.WALL_BRICK };
+const FURN = { hq: [P.DESK, P.DESK, P.LOCKER, P.TABLE, P.CRATES], bunker: [P.BUNK, P.BUNK, P.LOCKER, P.CRATES, P.BARRELS], site: [P.CRATES, P.CRATES + 1, P.BARRELS, P.LOCKER, P.TABLE], tower: [P.DESK, P.DESK, P.TABLE, P.LOCKER], lair: [P.TABLE, P.BUNK, P.LOCKER, P.CRATES, P.BARRELS, P.DESK] };
+// one floor: walls round the edge, rooms split off by inner walls with doorways, furniture against the walls, stairs
+function layFloor(w, g, id, kind, [x0, y0], f, nFloors) {
+const gi = (a, b) => a + Math.floor(g() * (b - a + 1)), pick = (a) => a[Math.floor(g() * a.length)];
+  const S = FLOOR, wallP = STYLE[kind];
+  for (let y = y0; y < y0 + S; y++) for (let x = x0; x < x0 + S; x++) {
+    const i = y * SIZE + x;
+    w.ground[i] = T.CONCRETE; w.override[i] = -1; w.small[i] = -1; w.large[i] = -1; w.xlOf[i] = -1; w.blocked[i] = 1; w.inside[i] = id + 1; w.inFloor[i] = f + 1;
+    w.sloped && (w.sloped[i] = 0); w.fringeA[i] = w.fringeB[i] = w.fringeC[i] = w.fringeD[i] = 0;
+    if (x === x0 || y === y0 || x === x0 + S - 1 || y === y0 + S - 1) w.small[i] = wallP;
+  }
+  const doors = new Set();
+  const split = (rx, ry, rw, rh, depth) => {                 // rooms: split the bigger side with a wall, leave a doorway
+    if (depth > 3 || (rw < 8 && rh < 8)) return;
+    if (rw >= rh) {
+      const sx = rx + gi(3, rw - 4);
+      const d1 = ry + gi(0, rh - 1), d2 = rh > 7 ? ry + gi(0, rh - 1) : d1;
+      for (let y = ry; y < ry + rh; y++) if (y !== d1 && y !== d2) w.small[y * SIZE + sx] = wallP; else doors.add(y * SIZE + sx);
+      split(rx, ry, sx - rx, rh, depth + 1); split(sx + 1, ry, rx + rw - sx - 1, rh, depth + 1);
+    } else {
+      const sy = ry + gi(3, rh - 4);
+      const d1 = rx + gi(0, rw - 1), d2 = rw > 7 ? rx + gi(0, rw - 1) : d1;
+      for (let x = rx; x < rx + rw; x++) if (x !== d1 && x !== d2) w.small[sy * SIZE + x] = wallP; else doors.add(sy * SIZE + x);
+      split(rx, ry, rw, sy - ry, depth + 1); split(rx, sy + 1, rw, ry + rh - sy - 1, depth + 1);
+    }
+  };
+  split(x0 + 1, y0 + 1, S - 2, S - 2, 0);
+  // how you arrive: the front door (ground floor) or the stairs from the floor before
+  const ex = x0 + (S >> 1), ey = y0 + S - 2;
+  w.small[(y0 + S - 1) * SIZE + ex] = -1;                    // the way out on the ground floor is a gap in the outer wall
+  for (const [dx, dy] of [[0, 0], [-1, 0], [1, 0], [0, -1]]) { const i = (ey + dy) * SIZE + ex + dx; if (w.small[i] === wallP) { w.small[i] = -1; doors.add(i); } }
+  if (f > 0) w.small[(y0 + S - 1) * SIZE + ex] = wallP;
+  const reach = () => {                                      // flood from the arrival point
+    const seen = new Set([ey * SIZE + ex]), q = [[ex, ey]];
+    while (q.length) { const [x, y] = q.pop(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy, i = ny * SIZE + nx; if (nx <= x0 || ny <= y0 || nx >= x0 + S - 1 || ny >= y0 + S - 1 || seen.has(i)) continue; const sp = w.small[i]; if (sp === wallP || (sp >= 0 && sp !== P.STAIRS_DOWN && sp !== P.STAIRS_UP)) continue; seen.add(i); q.push([nx, ny]); } }
+    return seen;
+  };
+  // stairs on to the next floor: the reachable cell farthest from where you came in
+  let next = null;
+  if (f < nFloors - 1) {
+    let best = null, bd = -1;
+    for (const i of reach()) { const x = i % SIZE, y = (i / SIZE) | 0; const d = Math.abs(x - ex) + Math.abs(y - ey); if (d > bd && !doors.has(i)) { bd = d; best = [x, y]; } }
+    next = best; w.small[best[1] * SIZE + best[0]] = kind === 'tower' ? P.STAIRS_UP : P.STAIRS_DOWN;
+  }
+  if (f > 0) w.small[ey * SIZE + ex] = kind === 'tower' ? P.STAIRS_DOWN : P.STAIRS_UP;     // the way back up (or down)
+  // furniture against the walls, never in a doorway or blocking the way through
+  const furn = FURN[kind];
+  for (let k = 0; k < 22; k++) {
+    const x = gi(x0 + 1, x0 + S - 2), y = gi(y0 + 1, y0 + S - 2), i = y * SIZE + x;
+    if (w.small[i] >= 0 || doors.has(i) || Math.abs(x - ex) + Math.abs(y - ey) < 3 || (next && Math.abs(x - next[0]) + Math.abs(y - next[1]) < 2)) continue;
+    if (![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => w.small[(y + dy) * SIZE + x + dx] === wallP)) continue;
+    if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => doors.has((y + dy) * SIZE + x + dx))) continue;
+    const before = reach().size;
+    w.small[i] = pick(furn);
+    if (reach().size < before - 1) w.small[i] = -1;          // it cut a room off: take it away again
+  }
+  const open = [...reach()].map((i) => [i % SIZE, (i / SIZE) | 0]).filter(([x, y]) => w.small[y * SIZE + x] < 0 && !(x === ex && y === ey) && !(next && x === next[0] && y === next[1]));
+  return { x0, y0, ex, ey, next, free: open };
+}
 function buildInteriors(w, seed, sp, h) {
   const g = mulberry32(seed * 11 + 777), gi = (a, b) => a + Math.floor(g() * (b - a + 1)), pick = (a) => a[Math.floor(g() * a.length)];
   const slots = interiorSlots(); let slot = 0;
@@ -308,12 +368,10 @@ function buildInteriors(w, seed, sp, h) {
     for (const [x, y] of cands) { const i = y * SIZE + x; if (!h.isWater(x, y) && w.small[i] < 0 && w.large[i] < 0 && w.xlOf[i] < 0 && !(w.wallOwner && w.wallOwner[i] > -100)) return [x, y]; }
     return [ax + 1, ay];
   };
-  const STYLE = { hq: P.WALL_PLASTER, bunker: P.WALL_CONC, site: P.WALL_BRICK, tower: P.WALL_PLASTER };
-  const FURN = { hq: [P.DESK, P.DESK, P.LOCKER, P.TABLE, P.CRATES], bunker: [P.BUNK, P.BUNK, P.LOCKER, P.CRATES, P.BARRELS], site: [P.CRATES, P.CRATES + 1, P.BARRELS, P.LOCKER, P.TABLE], tower: [P.DESK, P.DESK, P.TABLE, P.LOCKER] };
   const make = (kind, name, bld, door, nFloors, extra) => {
     if (slot + nFloors > slots.length) return null;
     const id = w.interiors.length, floors = [];
-    for (let f = 0; f < nFloors; f++) floors.push(layFloor(id, kind, slots[slot++], f, nFloors));
+    for (let f = 0; f < nFloors; f++) floors.push(layFloor(w, g, id, kind, slots[slot++], f, nFloors));
     const def = Object.assign({ id, kind, name, bld, door, floors, hostages: [], target: null }, extra || {});
     // what you came for, on the bottom floor of a bunker or HQ, the top floor of a tower
     const last = floors[nFloors - 1];
@@ -340,63 +398,6 @@ function buildInteriors(w, seed, sp, h) {
     w.interiors.push(def);
     return def;
   };
-  // one floor: walls round the edge, rooms split off by inner walls with doorways, furniture against the walls, stairs
-  function layFloor(id, kind, [x0, y0], f, nFloors) {
-    const S = FLOOR, wallP = STYLE[kind];
-    for (let y = y0; y < y0 + S; y++) for (let x = x0; x < x0 + S; x++) {
-      const i = y * SIZE + x;
-      w.ground[i] = T.CONCRETE; w.override[i] = -1; w.small[i] = -1; w.large[i] = -1; w.xlOf[i] = -1; w.blocked[i] = 1; w.inside[i] = id + 1; w.inFloor[i] = f + 1;
-      w.sloped && (w.sloped[i] = 0); w.fringeA[i] = w.fringeB[i] = w.fringeC[i] = w.fringeD[i] = 0;
-      if (x === x0 || y === y0 || x === x0 + S - 1 || y === y0 + S - 1) w.small[i] = wallP;
-    }
-    const doors = new Set();
-    const split = (rx, ry, rw, rh, depth) => {                 // rooms: split the bigger side with a wall, leave a doorway
-      if (depth > 3 || (rw < 8 && rh < 8)) return;
-      if (rw >= rh) {
-        const sx = rx + gi(3, rw - 4);
-        const d1 = ry + gi(0, rh - 1), d2 = rh > 7 ? ry + gi(0, rh - 1) : d1;
-        for (let y = ry; y < ry + rh; y++) if (y !== d1 && y !== d2) w.small[y * SIZE + sx] = wallP; else doors.add(y * SIZE + sx);
-        split(rx, ry, sx - rx, rh, depth + 1); split(sx + 1, ry, rx + rw - sx - 1, rh, depth + 1);
-      } else {
-        const sy = ry + gi(3, rh - 4);
-        const d1 = rx + gi(0, rw - 1), d2 = rw > 7 ? rx + gi(0, rw - 1) : d1;
-        for (let x = rx; x < rx + rw; x++) if (x !== d1 && x !== d2) w.small[sy * SIZE + x] = wallP; else doors.add(sy * SIZE + x);
-        split(rx, ry, rw, sy - ry, depth + 1); split(rx, sy + 1, rw, ry + rh - sy - 1, depth + 1);
-      }
-    };
-    split(x0 + 1, y0 + 1, S - 2, S - 2, 0);
-    // how you arrive: the front door (ground floor) or the stairs from the floor before
-    const ex = x0 + (S >> 1), ey = y0 + S - 2;
-    w.small[(y0 + S - 1) * SIZE + ex] = -1;                    // the way out on the ground floor is a gap in the outer wall
-    for (const [dx, dy] of [[0, 0], [-1, 0], [1, 0], [0, -1]]) { const i = (ey + dy) * SIZE + ex + dx; if (w.small[i] === wallP) { w.small[i] = -1; doors.add(i); } }
-    if (f > 0) w.small[(y0 + S - 1) * SIZE + ex] = wallP;
-    const reach = () => {                                      // flood from the arrival point
-      const seen = new Set([ey * SIZE + ex]), q = [[ex, ey]];
-      while (q.length) { const [x, y] = q.pop(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy, i = ny * SIZE + nx; if (nx <= x0 || ny <= y0 || nx >= x0 + S - 1 || ny >= y0 + S - 1 || seen.has(i)) continue; const sp = w.small[i]; if (sp === wallP || (sp >= 0 && sp !== P.STAIRS_DOWN && sp !== P.STAIRS_UP)) continue; seen.add(i); q.push([nx, ny]); } }
-      return seen;
-    };
-    // stairs on to the next floor: the reachable cell farthest from where you came in
-    let next = null;
-    if (f < nFloors - 1) {
-      let best = null, bd = -1;
-      for (const i of reach()) { const x = i % SIZE, y = (i / SIZE) | 0; const d = Math.abs(x - ex) + Math.abs(y - ey); if (d > bd && !doors.has(i)) { bd = d; best = [x, y]; } }
-      next = best; w.small[best[1] * SIZE + best[0]] = kind === 'tower' ? P.STAIRS_UP : P.STAIRS_DOWN;
-    }
-    if (f > 0) w.small[ey * SIZE + ex] = kind === 'tower' ? P.STAIRS_DOWN : P.STAIRS_UP;     // the way back up (or down)
-    // furniture against the walls, never in a doorway or blocking the way through
-    const furn = FURN[kind];
-    for (let k = 0; k < 22; k++) {
-      const x = gi(x0 + 1, x0 + S - 2), y = gi(y0 + 1, y0 + S - 2), i = y * SIZE + x;
-      if (w.small[i] >= 0 || doors.has(i) || Math.abs(x - ex) + Math.abs(y - ey) < 3 || (next && Math.abs(x - next[0]) + Math.abs(y - next[1]) < 2)) continue;
-      if (![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => w.small[(y + dy) * SIZE + x + dx] === wallP)) continue;
-      if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => doors.has((y + dy) * SIZE + x + dx))) continue;
-      const before = reach().size;
-      w.small[i] = pick(furn);
-      if (reach().size < before - 1) w.small[i] = -1;          // it cut a room off: take it away again
-    }
-    const open = [...reach()].map((i) => [i % SIZE, (i / SIZE) | 0]).filter(([x, y]) => w.small[y * SIZE + x] < 0 && !(x === ex && y === ey) && !(next && x === next[0] && y === next[1]));
-    return { x0, y0, ex, ey, next, free: open };
-  }
   const bases = w.bases.map((r, bi) => [r, bi]);
   for (const [r, bi] of bases) {                                 // every enemy HQ: offices above, servers and prisoners below
     for (let y = r.y; y < r.y + r.s; y++) for (let x = r.x; x < r.x + r.s; x++) if (w.large[y * SIZE + x] === L.HQ) make('hq', 'ENEMY HQ', y * SIZE + x, doorOf(y * SIZE + x, 2), 2, { base: bi });
@@ -415,6 +416,7 @@ function buildInteriors(w, seed, sp, h) {
     if (make('tower', lg === XL.SKY || lg === XL.SKY2 ? 'SKYSCRAPER' : 'OFFICES', a, doorOf(a, 3), lg === XL.SKY || lg === XL.SKY2 ? 3 : 2)) towers++;
   }
   w.inDoor = new Map(); for (const d of w.interiors) w.inDoor.set(d.bld, d.id);
+  w.freeSlots = slots.slice(slot);                   // floors still free: zombie lairs get theirs from here during the battle
 }
 function generateWorld(seed, real, spec) {
   const sp = Object.assign({}, FREE_PLAY, spec || {});
@@ -1444,6 +1446,7 @@ function initCombat() {
   if (typeof forts !== 'undefined') forts.clear();
   if (typeof pits !== 'undefined') pits = [];
   if (typeof initSites === 'function') initSites();
+  if (typeof lairs !== 'undefined') lairs.clear();
   if (typeof initInteriors === 'function') initInteriors();
   if (typeof acid !== 'undefined') acid = [];
   if (typeof posts !== 'undefined') posts = [];
@@ -2665,6 +2668,7 @@ function drawCombatHud() {
   if (world.homeBase2) dot(world.homeBase2.x + 6, world.homeBase2.y + 6, '#70a8e8', 1);
   for (const e of enemies) if (e.alive && e.side >= 0) { ctx.fillStyle = e.side === seatOf(me) ? '#60e0e8' : '#4a78c8'; ctx.fillRect(Math.round(mx0 + miniX(mapX(e.x, e.y), mapY(e.x, e.y))), Math.round(my0 + miniY(mapX(e.x, e.y), mapY(e.x, e.y))), 1, 1); }
   if (typeof nests !== 'undefined') for (const n of nests) if (n.alive && n.from < 0) dot(n.cx, n.cy, '#a8d040', 1);
+  if (typeof lairs !== 'undefined') for (const a of lairs.keys()) if (Math.floor(time * 2) % 2) dot(a % SIZE, (a / SIZE) | 0, '#c8f060', 0);
   let nearest = null, nearestD = 1e9;
   const hmx = mapX(heli.x, heli.y), hmy = mapY(heli.x, heli.y);
   world.bases.forEach((b, bi) => {
@@ -2987,6 +2991,7 @@ function netMessage(m) {
     }
     case 'pit': unpackPit(m.p); break;
     case 'hst': unpackHostages(m.a); break;
+    case 'lair': if (typeof unpackLairs === 'function') unpackLairs(m.a); break;
     case 'ichg': if (intState[m.k]) intState[m.k].charge = m.c; break;
     case 'idone': if (intState[m.k]) { intState[m.k].done = true; intState[m.k].charge = -1; } break;
     case 'site': if (world.sites && world.sites[m.k]) { siteOwn[m.k] = m.o; say(m.o === 'p' ? world.sites[m.k].name + ' CAPTURED: ' + SITE_PERK[world.sites[m.k].kind] : world.sites[m.k].name + ' LOST TO THE ENEMY', 5); } break;
@@ -4346,20 +4351,23 @@ function spawnZombie(x, y, nestK, type) {
 }
 function zombieTarget(e) {                      // people first (soldiers, you on foot, civilians); vehicles only if nobody is in reach
   let human = null, hd = 420, mach = null, md = 420;
+  const sp = spotAt(e.x, e.y), indoor = sp >= 0, same = (x, y) => spotAt(x, y) === sp && (!indoor || gdist(e.x, e.y, x, y) < 380 || sightClear(e.x, e.y, x, y));     // inside, they hear you through the walls
   for (let pi = 0; pi < 2; pi++) {
     const pl = players[pi];
     if (!pl.active || pl.dead || veh(pi).air) continue;
     const d = gdist(e.x, e.y, helis[pi].x, helis[pi].y);
+    if (d < 420 && !same(helis[pi].x, helis[pi].y)) continue;
     if (pl.kind === 'foot') { if (d < hd) { hd = d; human = { pi }; } }
     else if (d < md) { md = d; mach = { pi }; }
   }
   for (const o of enemies) {
     if (!o.alive || isZed(o.type) || ENEMY[o.type].air) continue;
     const d = gdist(e.x, e.y, o.x, o.y);
+    if (d < Math.max(hd, md) && !same(o.x, o.y)) continue;
     if (isFoot(o.type)) { if (d < hd) { hd = d; human = { e: o }; } }
     else if (d < md) { md = d; mach = { e: o }; }
   }
-  if (!ENEMY[e.type].spit && typeof nearestCiv === 'function') { const n = nearestCiv(e.x, e.y, hd); if (n) human = { c: n.c }; }
+  if (!indoor && !ENEMY[e.type].spit && typeof nearestCiv === 'function') { const n = nearestCiv(e.x, e.y, hd); if (n) human = { c: n.c }; }
   return human || mach;
 }
 // Which base to march on: one of the three nearest standing bases (the enemy's, yours, or home).
@@ -4377,7 +4385,18 @@ function zombieGoal(e) {
 function zombieThink(e, dt) {
   const def = ENEMY[e.type];
   e.retarget = (e.retarget || 0) - dt; e.cool -= dt;
-  if (e.retarget <= 0) { e.retarget = rand(0.3, 0.6); e.foe = zombieTarget(e); }
+  if (e.retarget <= 0) {
+    e.retarget = rand(0.3, 0.6);
+    const was = e.foe; e.foe = zombieTarget(e);
+    if (!e.foe && was && was.pi !== undefined && !(e.chaseIn >= 0) && insideAt(e.x, e.y) < 0) zombieFollowIn(e, was.pi);   // they went inside: after them
+  }
+  const indoor = insideAt(e.x, e.y) >= 0;
+  if (e.chaseIn >= 0 && !e.foe) {                        // heading for the door someone went in by
+    const d = world.interiors[e.chaseIn];
+    if (!d || (intState[d.id] && intState[d.id].done)) e.chaseIn = -1;
+    else { const dx = cellX(d.door[0], d.door[1]), dy = cellY(d.door[0], d.door[1]); if (gdist(e.x, e.y, dx, dy) < 22) { zombieGoIn(e); return; } e.lairGo = -1; e.foe = null; e.tgo = { x: dx, y: dy }; }
+  } else e.tgo = null;
+  if (e.foe) e.chaseIn = -1;
   let tx, ty, foe = e.foe;
   if (foe && foe.pi !== undefined && (players[foe.pi].dead || veh(foe.pi).air)) foe = e.foe = null;
   if (foe && foe.e && !foe.e.alive) foe = e.foe = null;
@@ -4401,6 +4420,20 @@ function zombieThink(e, dt) {
       return;
     }
     tx = fx; ty = fy;
+    if (indoor) { const w = navStep(e.x, e.y, fx, fy); if (w) { tx = w.x; ty = w.y; } }
+    e.idleIn = 0;
+  } else if (e.tgo) {
+    e.engaged = false; const w = navStep(e.x, e.y, e.tgo.x, e.tgo.y); tx = w ? w.x : e.tgo.x; ty = w ? w.y : e.tgo.y;
+  } else if (indoor) {                                   // inside with nobody about: stand and sway
+    e.engaged = false; e.idleIn = (e.idleIn || 0) + dt; e.phase += dt * 1.5;
+    return;
+  } else if (e.lairGo >= 0) {                            // drawn to a building: in it goes
+    e.engaged = false;
+    if (!e.lairAt || e.lairAt.b !== e.lairGo) { const c = lairDoor(e.lairGo); e.lairAt = { b: e.lairGo, x: cellX(c[0], c[1]), y: cellY(c[0], c[1]) }; }
+    const p = e.lairAt;
+    if (!garrisonable(e.lairGo) || (e.lairT = (e.lairT || 0) + dt) > 15) { e.lairGo = -1; e.lairT = 0; tx = p.x; ty = p.y; }
+    else if (gdist(e.x, e.y, p.x, p.y) < 24) { if (!joinLair(e, e.lairGo)) e.lairGo = -1; return; }
+    else { const w = navStep(e.x, e.y, p.x, p.y); tx = w ? w.x : p.x; ty = w ? w.y : p.y; }
   } else if (e.base >= 100 && nests[e.base - 100]) {     // gathering: mill about round the nest
     e.engaged = false;
     const n = nests[e.base - 100];
@@ -4408,6 +4441,7 @@ function zombieThink(e, dt) {
     tx = e.mill.x; ty = e.mill.y;
   } else {
     e.engaged = false;
+    if ((e.lairCheck = (e.lairCheck || rand(0, 1)) - dt) <= 0) { e.lairCheck = 1; const b = lairPull(e); if (b >= 0) { e.lairGo = b; e.lairT = 0; } }
     if (!e.zgoal || (e.zgoal.kind === 'army' && !baseAlive(e.zgoal.zone)) || (e.zgoal.kind === 'fob' && !zc().built.includes(e.zgoal.zone))) e.zgoal = zombieGoal(e);
     const g = e.zgoal;
     if (gdist(e.x, e.y, g.x, g.y) < 170) { zombieSiege(e, dt); return; }
@@ -4422,6 +4456,12 @@ function zombieThink(e, dt) {
   e.h = rotateToward(e.h, want, 4 * dt);
   const sp = def.speed * (0.85 + 0.3 * Math.sin(e.wob * 0.7)) * (e.base >= 100 && !foe ? 0.45 : 1);
   const nx = e.x + Math.cos(e.h) * sp * dt, ny = e.y + Math.sin(e.h) * sp * 0.5 * dt;
+  if (indoor) {
+    if (posBlocks('foot', e.x, e.y)) unstick(e);
+    else if (!posBlocks('foot', nx, ny)) { e.x = nx; e.y = ny; }
+    else { const a2 = gangle(e.x, e.y, tx, ty), mx = e.x + Math.cos(a2) * sp * dt, my = e.y + Math.sin(a2) * sp * 0.5 * dt; if (!posBlocks('foot', mx, my)) { e.x = mx; e.y = my; e.h = a2; } }
+    e.phase += dt * 5; return;
+  }
   if (!posBlocks('foot', nx, ny)) { e.x = nx; e.y = ny; }
   else if (!posBlocks('foot', nx, e.y)) e.x = nx;
   else if (!posBlocks('foot', e.x, ny)) e.y = ny;
@@ -4635,7 +4675,7 @@ function freeBuilding(x, y, range, side) {
     if (cx < 1 || cy < 1 || cx >= SIZE - 1 || cy >= SIZE - 1) continue;
     let i = cy * SIZE + cx;
     if (world.xlOf && world.xlOf[i] >= 0) { if (world.xlOf[i] !== i && !(cx === mx && cy === my)) continue; i = world.xlOf[i]; }    // a big lot: by its anchor
-    if (!garrisonable(i)) continue;
+    if (!garrisonable(i) || (typeof lairs !== 'undefined' && lairs.has(i))) continue;
     const p = bpos(i), d = gdist(x, y, p.x, p.y);
     if (d >= bd) continue;
     const h = holder(i), friendly = side === 'you' ? (h === null || h === 0 || h === 1 || h === 'you') : (h === null || h === side);
@@ -6228,6 +6268,7 @@ const spotAt = (x, y) => { const cx = Math.round(mapX(x, y)), cy = Math.round(ma
 const viewIns = () => (players[me] && !players[me].dead ? pIns(me) : -1);
 const viewPlace = () => (players[me] && !players[me].dead ? spotAt(helis[me].x, helis[me].y) : -1);
 function initInteriors() {
+  usedSlots = new Set((world.interiors || []).filter((d) => d.kind === 'lair').flatMap((d) => d.floors.map((_, f) => d.slot + f)));
   intState = (world.interiors || []).map(() => ({ done: false, charge: -1, by: 0 }));
   hostages = [];
   (world.interiors || []).forEach((d) => d.hostages.forEach((q, j) => hostages.push({ k: d.id, j, x: cellX(q.x, q.y), y: cellY(q.x, q.y), h: 0.8, st: 8, alive: true, look: (d.id + j) % 3, phase: 0, id: 9000 + hostages.length, by: -1 })));
@@ -6265,7 +6306,7 @@ function interiorHint(pi) {
   const pl = players[pi], h = helis[pi];
   if (pl.kind !== 'foot') return '';
   const k = pIns(pi);
-  if (k < 0) { const dn = doorNear(pi), d = world.interiors[dn]; return dn >= 0 ? 'GO INSIDE ' + d.name + (d.mission ? ': ' + MISSION_TEXT[d.mission] : '') : ''; }
+  if (k < 0) { const dn = doorNear(pi), d = world.interiors[dn]; return dn >= 0 ? 'GO INSIDE ' + d.name + (d.mission ? ': ' + MISSION_TEXT[d.mission] : '') + (d.kind !== 'lair' && lairs.has(d.bld) ? ' (INFESTED)' : '') : ''; }
   const d = world.interiors[k], f = floorOf(d, h.x, h.y), fl = d.floors[f];
   if (!fl) return '';
   const near = (cx, cy, r) => gdist(h.x, h.y, cellX(cx, cy), cellY(cx, cy)) < r;
@@ -6279,7 +6320,7 @@ function interiorHint(pi) {
 }
 function interiorAct(pi, hint) {
   const h = helis[pi];
-  if (hint.startsWith('GO INSIDE')) { const d = world.interiors[doorNear(pi)]; moveParty(pi, d.floors[0].ex, d.floors[0].ey, -Math.PI * 3 / 4); sayTo(pi, d.name + ': ' + (d.mission ? MISSION_TEXT[d.mission] : d.target ? 'PLANT A CHARGE ON THE AMMO DUMP' : d.kind === 'site' ? 'CLEAR IT OUT' : 'FIND THE HOSTAGES'), 4); return true; }
+  if (hint.startsWith('GO INSIDE')) { const d = world.interiors[doorNear(pi)]; moveParty(pi, d.floors[0].ex, d.floors[0].ey, -Math.PI * 3 / 4); sayTo(pi, d.name + ': ' + (d.mission ? MISSION_TEXT[d.mission] : d.target ? 'PLANT A CHARGE ON THE AMMO DUMP' : d.kind === 'site' ? 'CLEAR IT OUT' : d.kind === 'lair' ? 'IT IS CRAWLING WITH ZOMBIES. CLEAR IT OUT' : 'FIND THE HOSTAGES'), 4); return true; }
   const k = pIns(pi); if (k < 0) return false;
   const d = world.interiors[k], f = floorOf(d, h.x, h.y), fl = d.floors[f];
   if (hint === 'GO OUTSIDE') {
@@ -6329,7 +6370,7 @@ function navField(gx, gy) {
       const nx = x + dx, ny = y + dy, k = (ny - oy) * N + nx - ox;
       if (nx - ox < 0 || ny - oy < 0 || nx - ox >= N || ny - oy >= N || d[k] >= 0) continue;
       const i = ny * SIZE + nx;
-      if (!world.inside[i] || world.inside[i] !== world.inside[gy * SIZE + gx] || world.inFloor[i] !== world.inFloor[gy * SIZE + gx] || !walkable(nx, ny)) continue;
+      if (world.inside[i] !== world.inside[gy * SIZE + gx] || world.inFloor[i] !== world.inFloor[gy * SIZE + gx] || !walkable(nx, ny)) continue;   // outdoors too (round buildings to a door)
       d[k] = dd + 1; q.push([nx, ny]);
     }
   }
@@ -6391,7 +6432,8 @@ function moveParty(pi, cx, cy, heading) {
 // Host / solo, every frame: charges count down and go off; freed hostages follow; the interior guards close in.
 function updateInteriors(dt) {
   if (!world.interiors || !world.interiors.length) return;
-  if (intState.length !== world.interiors.length) initInteriors();
+  while (intState.length < world.interiors.length) intState.push({ done: false, charge: -1, by: 0 });
+  if (typeof zombiesOn === 'function' && zombiesOn()) updateLairs(dt);
   world.interiors.forEach((d, k) => {
     const st = intState[k];
     if (st.charge < 0 || st.done) return;
@@ -6461,13 +6503,15 @@ function interiorHeld(id) { return id !== undefined && id >= 0 && enemies.some((
 // --- saving and the link ------------------------------------------------------------------------------------------------
 const packHostages = () => hostages.map((q) => [Math.round(q.x), Math.round(q.y), q.st, q.alive ? 1 : 0, q.by]);
 function unpackHostages(a) { (a || []).forEach((r, n) => { const q = hostages[n]; if (!q) return; [q.x, q.y, q.st, , q.by] = r; q.alive = !!r[3]; }); }
-const packInteriors = () => ({ d: intState.map((s) => (s.done ? 1 : 0)).join(''), h: packHostages() });
+const packInteriors = () => ({ d: intState.map((s) => (s.done ? 1 : 0)).join(''), h: packHostages(), z: packLairs() });
 function unpackInteriors(o) {
   if (!world.interiors) return;
+  if (o && o.z) { initInteriors(); unpackLairs(o.z); }
   initInteriors();
   if (!o) return;
   [...(o.d || '')].forEach((c, k) => { if (intState[k]) intState[k].done = c === '1'; });
   unpackHostages(o.h);
+  if (o.z) unpackLairs(o.z);
   for (const q of hostages) if (q.st === 0) q.st = 8;                 // anyone following when it was saved waits where they were
 }
 // --- drawing ---------------------------------------------------------------------------------------------------------------
@@ -6485,7 +6529,7 @@ function drawFloorPlan(mx0, my0, mw, mh) {
   if (f === 0) { ctx.fillStyle = '#60e070'; ctx.fillRect(ox + (fl.ex - fl.x0) * s, oy + (FLOOR - 1) * s, s, s); }
   const dot = (x, y, c) => { const cx = mapX(x, y) - fl.x0, cy = mapY(x, y) - fl.y0; if (cx < 0 || cy < 0 || cx >= FLOOR || cy >= FLOOR) return; ctx.fillStyle = c; ctx.fillRect(Math.round(ox + cx * s + s / 2) - 1, Math.round(oy + cy * s + s / 2) - 1, 3, 3); };
   for (const q of hostages) if (q.alive && q.k === k && q.st !== 9) dot(q.x, q.y, Math.floor(time * 3) % 2 ? '#fff0a0' : '#ffffff');
-  for (const e of enemies) if (e.alive && insideAt(e.x, e.y) === k && canSee(h.x, h.y, e.x, e.y)) dot(e.x, e.y, e.side >= 0 ? '#70a8e8' : '#f04838');
+  for (const e of enemies) if (e.alive && insideAt(e.x, e.y) === k && canSee(h.x, h.y, e.x, e.y)) dot(e.x, e.y, e.side >= 0 ? '#70a8e8' : isZed(e.type) ? '#a8d040' : '#f04838');
   dot(h.x, h.y, '#ffffff');
   text(d.name + ' ' + (f + 1) + '/' + d.floors.length, ox, oy + s * FLOOR + 4, 'yellow');
   return true;
@@ -6501,12 +6545,13 @@ function drawChargeHud() {
 // Outside: a small marker at every door you can still go in by (a doorway with a yellow arrow bobbing over it).
 function drawDoors(ox, oy) {
   if (viewIns() >= 0 || !world.interiors) return;
+  drawLairs(ox, oy);
   const near = players[me] && players[me].kind === 'foot';
   for (const d of world.interiors) {
     if (intState[d.id] && intState[d.id].done) continue;
     const x = Math.round(cellX(d.door[0], d.door[1]) - ox), y = Math.round(cellY(d.door[0], d.door[1]) - oy - liftAt(cellX(d.door[0], d.door[1]), cellY(d.door[0], d.door[1])));
     if (x < -20 || y < -20 || x > W + 20 || y > H + 40) continue;
-    const b = Math.round(Math.sin(time * 4 + d.id) * 2), c = d.mission === 'general' ? '#ffe040' : d.target ? '#f0b040' : d.hostages.length ? '#fff0a0' : '#a0d0f0';
+    const b = Math.round(Math.sin(time * 4 + d.id) * 2), c = lairs.has(d.bld) ? '#a8d040' : d.mission === 'general' ? '#ffe040' : d.target ? '#f0b040' : d.hostages.length ? '#fff0a0' : '#a0d0f0';
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(x - 6, y - 3, 13, 5);
     ctx.fillStyle = c; ctx.fillRect(x - 5, y - 2, 11, 3);
     if (near || Math.floor(time * 2) % 2) { ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(x - 5, y - 20 + b); ctx.lineTo(x + 6, y - 20 + b); ctx.lineTo(x + 0.5, y - 12 + b); ctx.fill(); }
@@ -6521,6 +6566,165 @@ function insideZoom() {
   if (v >= 0 && lastView < 0 && CONFIG.viewHeight !== 360) { CONFIG.viewHeight = 360; resize(); snapCamera(); zoomedForInside = true; }
   else if (v < 0 && lastView >= 0 && zoomedForInside) { zoomedForInside = false; if (CONFIG.viewHeight === 360) { CONFIG.viewHeight = 540; resize(); snapCamera(); } }
   lastView = v;
+}
+
+// --- zombie lairs -----------------------------------------------------------------------------------------------------
+// Any building can become one. A zombie on the march that passes an empty building may go in instead (it vanishes into
+// the count); a lair breeds one more every 40 s up to 12, and bursts out at anyone who comes near its door, six at a time.
+// Go in (GO INSIDE: INFESTED) and the ones inside are waiting on the floors; kill every one and the building is clear.
+// Buildings that already have an inside use it; any other gets one laid out on the spot from the free floor slots.
+// Zombies chasing someone who goes inside follow them in through the door. Saved in ix.z; sent as 'lair'.
+//   lairs: building cell -> { b, n, breed, cool, open (someone has been in since it filled), quiet (s nobody inside) }
+const lairs = new Map();
+const LAIR_MAX = 16, LAIR_BREED = 12, LAIR_LIMIT = 20;
+let usedSlots = new Set();
+function lairDoor(a) {
+  const n = world.large[a] >= 100 ? xlN(world.large[a]) : world.large[a] >= 0 ? 2 : 1, ax = a % SIZE, ay = (a / SIZE) | 0, c = [];
+  for (let k = 0; k < n; k++) c.push([ax + 1, ay - k], [ax - k, ay + 1]);
+  for (const [x, y] of c) { const i = y * SIZE + x; if (world.ground[i] > T.SHALLOW && !cellBlocks('foot', x, y)) return [x, y]; }
+  return [ax + 1, ay];
+}
+// A fresh inside for building a, on free slot s (the same slot and building lay out the same floor on both machines).
+function makeLairInterior(a, s) {
+  const slots = world.freeSlots || [], nF = world.large[a] >= 100 && xlN(world.large[a]) >= 3 ? 2 : 1;
+  if (s + nF > slots.length) return null;
+  const id = world.interiors.length, g = mulberry32(a * 31 + s * 7 + (world.seed || 0)), floors = [];
+  for (let f = 0; f < nF; f++) { floors.push(layFloor(world, g, id, 'lair', slots[s + f], f, nF)); usedSlots.add(s + f); }
+  const def = { id, kind: 'lair', name: 'INFESTED BUILDING', bld: a, door: lairDoor(a), floors, hostages: [], target: null, slot: s };
+  world.interiors.push(def); world.inDoor.set(a, id);
+  intState[id] = { done: false, charge: -1, by: 0 };
+  return def;
+}
+function freeSlotFor(a) {
+  const nF = world.large[a] >= 100 && xlN(world.large[a]) >= 3 ? 2 : 1, slots = world.freeSlots || [];
+  for (let s = 0; s + nF <= slots.length; s++) { let ok = true; for (let f = 0; f < nF; f++) if (usedSlots.has(s + f)) ok = false; if (ok) return s; }
+  return -1;
+}
+const lairInterior = (a) => (world.inDoor && world.inDoor.has(a) ? world.interiors[world.inDoor.get(a)] : null);
+const zedsIn = (k) => { let n = 0; for (const e of enemies) if (e.alive && isZed(e.type) && insideAt(e.x, e.y) === k) n++; return n; };
+// Can the zombies take building a? Standing, nobody in it, not on a base, not already somebody's inside with the enemy in it.
+function lairable(a) {
+  if (!garrisonable(a) || holder(a) !== null) return false;
+  const ax = a % SIZE, ay = (a / SIZE) | 0, near = (b) => b && ax >= b.x - 2 && ax <= b.x + 13 && ay >= b.y - 2 && ay <= b.y + 13;
+  if (near(world.homeBase) || near(world.homeBase2) || world.bases.some(near)) return false;
+  const d = lairInterior(a);
+  if (d) { if (d.kind === 'hq' || interiorHeld(d.id)) return false; for (let pi = 0; pi < 2; pi++) if (players[pi].active && pIns(pi) === d.id) return false; }
+  return true;
+}
+// Host / solo: a zombie walks in. Returns true if it went.
+function joinLair(e, a) {
+  let L = lairs.get(a);
+  if (!L) {
+    if (lairs.size >= LAIR_LIMIT || !lairable(a)) return false;
+    let d = lairInterior(a);
+    if (!d) { const s = freeSlotFor(a); if (s < 0) return false; d = makeLairInterior(a, s); if (!d) return false; }
+    intState[d.id].done = false;
+    L = { b: a, n: 0, breed: 40, cool: 4, open: false, quiet: 0 };
+    lairs.set(a, L);
+    if (role === 'host') netSend({ t: 'lair', a: packLairs() });
+  }
+  if (L.n >= LAIR_MAX) return false;
+  L.n++; e.alive = false; e.gone = true;
+  return true;
+}
+// Wandering zombie: now and then, an empty building close by draws it in (called from zombieThink, about once a second).
+function lairPull(e) {
+  if (Math.random() > 0.015 || insideAt(e.x, e.y) >= 0) return -1;
+  const mx = Math.round(mapX(e.x, e.y)), my = Math.round(mapY(e.x, e.y));
+  let best = -1, bd = 150;
+  for (let cy = my - 4; cy <= my + 4; cy++) for (let cx = mx - 4; cx <= mx + 4; cx++) {
+    if (cx < 1 || cy < 1 || cx >= SIZE - 1 || cy >= SIZE - 1) continue;
+    let i = cy * SIZE + cx;
+    if (world.xlOf[i] >= 0) { if (world.xlOf[i] !== i) continue; i = world.xlOf[i]; }
+    if (!garrisonable(i)) continue;
+    const L = lairs.get(i); if (L && L.n >= LAIR_MAX) continue;
+    const p = bpos(i), d = gdist(e.x, e.y, p.x, p.y);
+    if (d < bd && (L || lairable(i))) { bd = d; best = i; }
+  }
+  return best;
+}
+// Host / solo, every frame.
+function updateLairs(dt) {
+  if (!lairs.size) return;
+  for (const [a, L] of [...lairs]) {
+    const d = lairInterior(a);
+    if (!d || !garrisonable(a)) { lairs.delete(a); continue; }                  // knocked down: whatever was inside is gone
+    const k = d.id, here = [0, 1].filter((pi) => players[pi].active && !players[pi].dead && pIns(pi) === k);
+    if (here.length && L.n > 0) {                                               // someone came in: they're on the floors, waiting
+      for (let n = 0; n < L.n; n++) {
+        const fl = d.floors[n % d.floors.length], pool = fl.free.filter(([x, y]) => Math.abs(x - fl.ex) + Math.abs(y - fl.ey) > 5);
+        const [x, y] = (pool.length ? pool : fl.free)[Math.floor(Math.random() * (pool.length || fl.free.length))];
+        const z = spawnZombie(cellX(x, y), cellY(x, y), -1, BROOD[(a + n) % BROOD.length]); z.lair = a;
+      }
+      L.n = 0; L.open = true;
+    }
+    const inside = zedsIn(k);
+    if (L.open && L.n === 0 && inside === 0) {                                  // every last one dead
+      lairs.delete(a);
+      if (d.kind === 'lair') intState[k].done = true;                             // nothing left in there: no door marker
+      for (const pi of here) { players[pi].score += 800; sayTo(pi, 'BUILDING CLEARED: +800', 4); }
+      if (!here.length) say('AN INFESTED BUILDING IS CLEAR', 3);
+      if (role === 'host') netSend({ t: 'lair', a: packLairs() });
+      continue;
+    }
+    if (!here.length) {
+      L.breed -= dt;
+      if (L.breed <= 0) { L.breed = 40; if (L.n + inside < LAIR_BREED) L.n++; }
+      L.cool -= dt;
+      if (L.n > 0 && L.cool <= 0) {                                             // anyone near the door: out they come
+        const dx = cellX(d.door[0], d.door[1]), dy = cellY(d.door[0], d.door[1]);
+        let near = false;
+        for (let pi = 0; pi < 2; pi++) if (players[pi].active && !players[pi].dead && !veh(pi).air && gdist(helis[pi].x, helis[pi].y, dx, dy) < 220) near = true;
+        if (!near) for (const o of enemies) if (o.alive && !isZed(o.type) && !(ENEMY[o.type].air) && gdist(o.x, o.y, dx, dy) < 220) { near = true; break; }
+        if (near) {
+          const out = Math.min(6, L.n);
+          for (let n = 0; n < out; n++) { const z = spawnZombie(dx + rand(-14, 14), dy + rand(-7, 7), -1, BROOD[(a + L.n + n) % BROOD.length]); z.retarget = 0; }
+          L.n -= out; L.cool = 8;
+          for (let pi = 0; pi < 2; pi++) if (players[pi].active && gdist(helis[pi].x, helis[pi].y, dx, dy) < 260) sayTo(pi, 'ZOMBIES! THEY WERE IN THE BUILDING', 2.5);
+        }
+      }
+      // ones left about inside with nobody to chase go back into the count
+      if (inside) for (const e of enemies) if (e.alive && isZed(e.type) && insideAt(e.x, e.y) === k && !e.foe && (e.idleIn || 0) > 15 && L.n < LAIR_MAX) { e.alive = false; e.gone = true; L.n++; L.open = false; }
+    }
+  }
+  if ((updateLairs.t = (updateLairs.t || 0) - dt) <= 0) { updateLairs.t = 3; if (role === 'host') netSend({ t: 'lair', a: packLairs() }); }
+}
+// A zombie that was after someone who just went in: go in after them.
+function zombieFollowIn(e, pi) {
+  const k = pIns(pi); if (k < 0) return false;
+  const d = world.interiors[k], dx = cellX(d.door[0], d.door[1]), dy = cellY(d.door[0], d.door[1]);
+  if (gdist(e.x, e.y, dx, dy) > 360) return false;
+  e.chaseIn = k; return true;
+}
+function zombieGoIn(e) {
+  const d = world.interiors[e.chaseIn], fl = d.floors[0], spot = nearCells(fl.ex, fl.ey, 6)[Math.floor(Math.random() * 6)] || [fl.ex, fl.ey];
+  e.x = cellX(spot[0], spot[1]); e.y = cellY(spot[0], spot[1]); e.chaseIn = -1; e.retarget = 0;
+}
+// --- saving and the link: [building, count, interior id (made here) or -1, slot] ---
+const packLairs = () => {
+  const made = (world.interiors || []).filter((d) => d.kind === 'lair').map((d) => [d.bld, -1, d.id, d.slot]);
+  for (const [a, L] of lairs) { const m = made.find((r) => r[0] === a); if (m) m[1] = L.n; else made.push([a, L.n, -1, -1]); }
+  return made;
+};
+function unpackLairs(list) {
+  lairs.clear();
+  for (const [a, n, id, s] of (list || []).filter((r) => r[2] >= 0).sort((p, q) => p[2] - q[2])) {
+    if (!world.interiors[id]) { if (world.interiors.length !== id || !makeLairInterior(a, s)) continue; }
+  }
+  for (const [a, n, id] of list || []) if (n < 0 && id >= 0 && intState[id] && world.interiors[id] && world.interiors[id].kind === 'lair') intState[id].done = true;
+  for (const [a, n] of list || []) if (n >= 0 && lairInterior(a)) { lairs.set(a, { b: a, n, breed: 40, cool: 4, open: n === 0, quiet: 0 }); if (intState[lairInterior(a).id]) intState[lairInterior(a).id].done = false; }
+}
+function drawLairs(ox, oy) {                                                        // a green haze over every infested building
+  for (const [a, L] of lairs) {
+    const p = bpos(a), x = p.x - ox, y = p.y - oy - liftAt(p.x, p.y) - (p.large ? 40 : 18);
+    if (x < -80 || y < -80 || x > W + 80 || y > H + 80) continue;
+    for (let k = 0; k < 6; k++) {                                                   // sickly green fumes rising off the roof
+      const t = (time * 0.35 + k / 6) % 1, r = (p.large ? 12 : 7) + t * 12;
+      ctx.fillStyle = 'rgba(' + (k & 1 ? '120,170,40,' : '170,220,70,') + (0.6 * (1 - t) * Math.min(1, t * 5)).toFixed(2) + ')';
+      ctx.beginPath(); ctx.arc(x + Math.sin(k * 2.1 + time * 0.8) * (p.large ? 16 : 9), y - t * 34, r, 0, Math.PI * 2); ctx.fill();
+    }
+    if (L.n > 0) text(String(L.n), Math.round(x - 3 * String(L.n).length), Math.round(y - 52), 'green');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -8030,7 +8234,7 @@ function openBase() {
 loadImages().then(() => {
   setTouchIcon();
   FONT.white = IMG.font; FONT.shadow = tinted(IMG.font, 'rgba(0,0,0,0.75)');
-  FONT.yellow = tinted(IMG.font, '#fff0a0'); FONT.cyan = tinted(IMG.font, '#a0e0f0');
+  FONT.yellow = tinted(IMG.font, '#fff0a0'); FONT.cyan = tinted(IMG.font, '#a0e0f0'); FONT.green = tinted(IMG.font, '#b8f060'); FONT.red = tinted(IMG.font, '#ff6050');
   for (const n of ['tank_hull', 'tank_turret', 'aa', 'tank_hull_f', 'tank_turret_f', 'jeep', 'heli', 'ftank_turret', 'ftank_turret_f', 'rtank_turret', 'rtank_turret_f', 'arty_turret', 'arty_turret_f', 'bike', 'bike_f', 'bike_empty', 'bike_empty_f', 'buggy', 'buggy_f']) IMG[n + '_dead'] = darkened(IMG[n]);
   IMG.heli2 = recolored(IMG.heli, 'rgba(70,110,150,0.30)');
   IMG.heli_e = recolored(recolored(IMG.heli, 'rgba(24,24,28,0.62)'), 'rgba(170,40,26,0.30)');   // enemy gunships: dark, with a red cast      // the guest's helicopter: blue-grey
