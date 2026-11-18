@@ -1748,7 +1748,7 @@ function updateParticles(dt) {
     p.age += dt;
     if (p.age >= p.life) { parts[i] = parts[parts.length - 1]; parts.pop(); continue; }
     p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
-    if (p.t === 'spark' || p.t === 'debris') { p.vz -= 420 * dt; if (p.z < 0) { p.z = 0; p.vz *= -0.3; p.vx *= 0.5; p.vy *= 0.5; } }
+    if (p.t === 'spark' || p.t === 'debris' || p.t === 'gore') { p.vz -= 420 * dt; if (p.z < 0) { p.z = 0; p.vz *= -0.3; p.vx *= 0.5; p.vy *= 0.5; } }
     else if (p.t === 'smoke') { p.r += (p.grow || 5.5) * dt; p.vx += 4 * dt; p.vz *= 1 - 0.5 * dt; }
     else if (p.t === 'fire') { p.vx *= 1 - 4 * dt; p.vy *= 1 - 4 * dt; }
     else if (p.t === 'dust') { p.r += 16 * dt; p.vx *= 1 - 2.5 * dt; p.vy *= 1 - 2.5 * dt; }
@@ -1785,6 +1785,9 @@ function drawParticles(ox, oy) {
     } else if (p.t === 'spark') {
       ctx.globalAlpha = 1 - k * k; ctx.fillStyle = k < 0.5 ? '#ffe890' : '#e08030';
       ctx.fillRect(sx, sy, 2, 2);
+    } else if (p.t === 'gore') {                           // blood and bits: fly, drop, lie a moment
+      ctx.globalAlpha = Math.min(1, 3 * (1 - k)); ctx.fillStyle = p.c;
+      const r = Math.max(1, Math.round(p.r)); ctx.fillRect(sx, sy, r, p.z > 0 ? r : Math.max(1, r >> 1));
     } else if (p.t === 'debris') {
       ctx.globalAlpha = 1; ctx.fillStyle = '#1e1c1a';
       const r = Math.round(p.r); ctx.fillRect(sx, sy, r + 1, r);
@@ -1804,7 +1807,7 @@ function drawParticles(ox, oy) {
 function targetPos(t) { return { x: cellX(t.x, t.y), y: cellY(t.x, t.y) }; }
 function damageAt(x, y, blast, dmg, pi, byEnemy) {
   if (typeof damageCivs === 'function') damageCivs(x, y, blast, dmg, pi, byEnemy);
-  if (!byEnemy) for (const e of enemies) if (e.alive && !(e.side >= 0) && gdist(x, y, e.x, e.y) < blast + ENEMY[e.type].radius) { e.hp -= dmg * garMult(e); if (e.hp <= 0) killEnemy(e, pi); }
+  if (!byEnemy) for (const e of enemies) if (e.alive && !(e.side >= 0) && gdist(x, y, e.x, e.y) < blast + ENEMY[e.type].radius) { e.hp -= dmg * garMult(e); if (e.hp <= 0) { hitBy(e, x, y, dmg, blast); killEnemy(e, pi); } }
   if (!byEnemy && typeof nests !== 'undefined') for (const n of nests) if (n.alive && gdist(x, y, n.x, n.y) < blast + 40) { n.hp -= dmg; if (n.hp <= 0) destroyNest(n, pi); }
   damagePosts(x, y, blast, dmg, pi, byEnemy);
   if (!byEnemy) for (const t of world.targets) {
@@ -1897,9 +1900,10 @@ function killEnemy(e, pi) {
   e.alive = false;
   const ours = e.side >= 0;
   if (pi >= 0 && !ours) players[pi || 0].score += def.score;
-  if (role === 'host') netSend({ t: 'ekill', k: enemies.indexOf(e) });
   const foot = isFoot(e.type) || isZed(e.type);
-  if (foot) e.fallT = time;                          // soldiers (and zombies) fall where they stand (see drawDynamicRow)
+  if (foot) { e.fallT = time; dieHow(e); }
+  if (role === 'host') netSend({ t: 'ekill', k: enemies.indexOf(e), d: e.death, x: Math.round(e.x), y: Math.round(e.y) });
+  if (foot) deathFx(e);                              // soldiers (and zombies) fall, or are thrown, or blown apart (see fallen())
   else explosion(e.x, e.y, 6, def.boom);
   if (ours && isGroundVeh(e.type) && playerAt(e.side) >= 0) sayTo(playerAt(e.side), 'YOUR ' + def.name + ' WAS DESTROYED', 3);
   if (!foot) {
@@ -2115,7 +2119,7 @@ function updateShots(dt) {
     } else if (s.foe) {                                // army fire at a zombie (or at your units)
       const lk = LOOK(s.kind);
       if (lk === 'tank' || lk === 'rocket' || lk === 'arty') explosion(s.x1, s.y1, 4, lk === 'arty' ? 36 : 18, true); else if (lk === 'flame') puff('fire', s.x1, s.y1, 4, { r: 6, life: 0.5, vz: 20 }); else puff('dust', s.x1, s.y1, 2, { r: 2, life: 0.4, c: '#8a7a5a', a: 0.4 });
-      if (authority() && s.foe.alive && gdist(s.foe.x, s.foe.y, s.x1, s.y1) < (lk === 'arty' ? 80 : lk === 'tank' || lk === 'rocket' ? 40 : 22)) { s.foe.hp -= s.dmg * (s.foe.post ? 0.5 : garMult(s.foe)); if (s.foe.hp <= 0) { if (s.foe.post) killPost(s.foe, -1); else killEnemy(s.foe, -1); } }
+      if (authority() && s.foe.alive && gdist(s.foe.x, s.foe.y, s.x1, s.y1) < (lk === 'arty' ? 80 : lk === 'tank' || lk === 'rocket' ? 40 : 22)) { s.foe.hp -= s.dmg * (s.foe.post ? 0.5 : garMult(s.foe)); if (s.foe.hp <= 0) { if (s.foe.post) killPost(s.foe, -1); else { hitBy(s.foe, s.x0, s.y0, lk === 'tank' || lk === 'rocket' || lk === 'arty' ? 120 : 6, lk === 'arty' ? 80 : 40, true); killEnemy(s.foe, -1); } } }
     } else if (s.siege || s.pi < 0) {
       explosion(s.x1, s.y1, 6, 22, true);
       if (s.siege && authority()) damageAt(s.x1, s.y1, s.siege.blast, s.siege.dmg, 0, true);
@@ -2258,7 +2262,7 @@ function updatePlayer(pi, dt) {
   const held = pi === me ? weaponDown : pl.weapons;
   for (let s = 0; s < 3; s++) if (held[s]) fire(pi, s);
   if (isTank(pl.kind) || isWheels(pl.kind)) for (const z of enemies) {     // and run zombies down
-    if (z.alive && isZed(z.type) && !ENEMY[z.type].big && gdist(heli.x, heli.y, z.x, z.y) < (isTank(pl.kind) ? 26 : 18) && (isTank(pl.kind) || Math.hypot(heli.vx, heli.vy) > 60)) killEnemy(z, pi);
+    if (z.alive && isZed(z.type) && !ENEMY[z.type].big && gdist(heli.x, heli.y, z.x, z.y) < (isTank(pl.kind) ? 26 : 18) && (isTank(pl.kind) || Math.hypot(heli.vx, heli.vy) > 60)) { hitBy(z, heli.x - heli.vx * 0.2, heli.y - heli.vy * 0.1, 30, 30, true); killEnemy(z, pi); }
   }
   if (isTank(pl.kind) || isWheels(pl.kind)) {    // tanks flatten whatever light thing they drive over; jeeps knock over the flimsy stuff
     const cx = Math.round(mapX(heli.x, heli.y)), cy = Math.round(mapY(heli.x, heli.y)), i = cy * SIZE + cx;
@@ -2512,19 +2516,98 @@ function drawDynamicShadows(sg, rows, ox, oy0) {
 const frame16 = (h) => (((Math.round(h / (Math.PI * 2) * 16)) % 16) + 16) % 16;
 const frame8 = (h) => (((Math.round(h / (Math.PI * 2) * 8)) % 8) + 8) % 8;
 const carSprite = (c) => (c.nx !== c.cx ? P.CAR_X : P.CAR_Y) + c.v;
-// A fallen soldier: a small dark-red pool spreads out under him over a second or two.
-function fallen(sheet, x, y, h, t, seed) {
-  const k = t === undefined ? 1 : Math.max(0, Math.min(1, (time - t - 0.3) / 1.8));
-  if (k > 0) {
-    const r = Math.sin(seed) * 0.5 + 0.5, q = Math.cos(seed * 1.7) * 0.5 + 0.5;
-    ctx.fillStyle = 'rgba(82,14,12,0.9)';
-    for (const [dx, dy, rx] of [[0, 0, 7], [-3 + r * 6, -1 + q * 2, 5], [-4 + q * 8, r * 2 - 1, 4]]) {
-      ctx.beginPath(); ctx.ellipse(x + dx, y + 1 + dy, rx * k, rx * 0.5 * k, 0, 0, Math.PI * 2); ctx.fill();
+// --- how they die --------------------------------------------------------------------------------------------------------
+// e.death = [kind, vx, vy, seed, v2x, v2y]  (screen px)
+//   0 DROP   bullets: a short stagger back from the shot, then down (left or right way round).
+//   1 THROWN a blast: the body flies away from it in an arc, tumbling, lands and lies there.
+//   2 SPLIT  a big blast right on top of him: the top half one way, the legs the other.
+// e.x / e.y is where the body ends up (DROP / THROWN) or where he stood (SPLIT; the halves lie at +v and +v2).
+function hitBy(e, x, y, dmg, blast, from) { e.lastHit = { x, y, dmg, blast, from: !!from, t: time }; }
+function landClear(x0, y0, dx, dy) {                    // as far along the way as he can go without passing through anything
+  let ok = 0;
+  for (let k = 1; k <= 8; k++) { if (posBlocks('foot', x0 + dx * k / 8, y0 + dy * k / 8)) break; ok = k / 8; }
+  return [dx * ok, dy * ok];
+}
+function dieHow(e) {
+  const h = e.lastHit && time - e.lastHit.t < 0.25 ? e.lastHit : null, seed = Math.floor(Math.random() * 997) + 1;
+  const dc = h ? gdist(h.x, h.y, e.x, e.y) : 99;
+  const a = h && dc > 2 ? gangle(h.x, h.y, e.x, e.y) : rand(0, Math.PI * 2);
+  const boom = h && h.dmg >= 25 && h.blast >= 30, near = h ? (h.from ? 0.6 : Math.min(1, dc / h.blast)) : 1;
+  const big = ENEMY[e.type] && ENEMY[e.type].big;
+  if (!boom || big) {
+    const [vx, vy] = landClear(e.x, e.y, Math.cos(a) * rand(4, 10), Math.sin(a) * rand(2, 5));
+    e.x += vx; e.y += vy; e.death = [0, Math.round(vx), Math.round(vy), seed, 0, 0];
+  } else {
+    const d = Math.min(80, (20 + 28 * Math.min(2.2, h.dmg / 60)) * (1.25 - 0.6 * near) * rand(0.8, 1.2));
+    if (h.dmg >= 40 && near < 0.5 && Math.random() < 0.65) {
+      const a1 = a + rand(-0.5, 0.5), a2 = a + Math.PI + rand(-0.7, 0.7);
+      const [vx, vy] = landClear(e.x, e.y, Math.cos(a1) * d * 0.8, Math.sin(a1) * d * 0.4);
+      const [wx, wy] = landClear(e.x, e.y, Math.cos(a2) * d * 0.4, Math.sin(a2) * d * 0.2);
+      e.death = [2, Math.round(vx), Math.round(vy), seed, Math.round(wx), Math.round(wy)];
+    } else {
+      const [vx, vy] = landClear(e.x, e.y, Math.cos(a) * d, Math.sin(a) * d * 0.5);
+      e.x += vx; e.y += vy; e.death = [1, Math.round(vx), Math.round(vy), seed, 0, 0];
     }
-    ctx.fillStyle = 'rgba(130,28,22,0.55)';
-    ctx.beginPath(); ctx.ellipse(x - 1, y, 3.5 * k, 1.6 * k, 0, 0, Math.PI * 2); ctx.fill();
   }
-  ctx.drawImage(sheet, frame8(h) * 32, 4 * 40, 32, 40, x - 16, y - 30, 32, 40);
+  e.lastHit = null;
+}
+// Blood (darker and browner on a zombie) sprays the way he went.
+function deathFx(e) {
+  const d = e.death; if (!d || d[0] === 0) return;
+  const zed = isZed(e.type), cols = zed ? ['#4a3a16', '#5c4a1c', '#2e2410'] : ['#7a1410', '#9a2018', '#4e0c0a'];
+  const n = d[0] === 2 ? 22 : 10, x = d[0] === 2 ? e.x : e.x - d[1], y = d[0] === 2 ? e.y : e.y - d[2], len = Math.hypot(d[1], d[2] * 2) || 1;
+  for (let k = 0; k < n; k++) puff('gore', x, y, rand(6, 16), { vx: d[1] / len * rand(30, 140) + rand(-30, 30), vy: d[2] / len * rand(15, 70) + rand(-15, 15), vz: rand(40, 150), life: rand(0.9, 1.6), r: rand(1, 2.4), c: cols[k % 3] });
+}
+const ease = (k) => 1 - (1 - k) * (1 - k);
+// A pool of blood, growing from nothing over a second or two.
+function pool(x, y, k, seed, s, zed) {
+  if (k <= 0) return;
+  const r = Math.sin(seed) * 0.5 + 0.5, q = Math.cos(seed * 1.7) * 0.5 + 0.5;
+  ctx.fillStyle = zed ? 'rgba(46,40,14,0.9)' : 'rgba(82,14,12,0.9)';
+  for (const [dx, dy, rx] of [[0, 0, 7], [-3 + r * 6, -1 + q * 2, 5], [-4 + q * 8, r * 2 - 1, 4]]) {
+    ctx.beginPath(); ctx.ellipse(x + dx * s, y + 1 + dy * s, rx * k * s, rx * 0.5 * k * s, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = zed ? 'rgba(70,62,22,0.55)' : 'rgba(130,28,22,0.55)';
+  ctx.beginPath(); ctx.ellipse(x - 1, y, 3.5 * k * s, 1.6 * k * s, 0, 0, Math.PI * 2); ctx.fill();
+}
+// Part of a standing frame (rows sy..sy+sh of row 1), turned by `ang` about (cx, cy).
+function bodyPart(sheet, f, sy, sh, cx, cy, ang, flip) {
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang); if (flip) ctx.scale(-1, 1);
+  ctx.drawImage(sheet, f * 32, 40 + sy, 32, sh, -16, -sh / 2, 32, sh);
+  ctx.restore();
+}
+function fallen(sheet, x, y, h, t, seed, d, zed) {
+  const u = t === undefined ? 99 : time - t, f = frame8(h), kind = d ? d[0] : 0, flip = d && d[3] % 2 === 1;
+  if (kind === 1) {                                    // thrown: tumbling through the air, then lying where he came down
+    const len = Math.hypot(d[1], d[2] * 2), T = 0.35 + len / 220;
+    if (u < T) {
+      const k = u / T, e = ease(k), z = 4 * (8 + len * 0.3) * k * (1 - k), px = x - d[1] * (1 - e), py = y - d[2] * (1 - e);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(px, py, 7, 3, 0, 0, Math.PI * 2); ctx.fill();
+      bodyPart(sheet, f, 0, 40, px, py - 12 - z, (d[1] >= 0 ? 1 : -1) * k * Math.PI * (1 + (d[3] % 3) * 0.25), flip);
+      return;
+    }
+    pool(x, y, Math.min(1, (u - T) / 1.8), seed, 1, zed);
+    if (u < T + 0.45) { const k = (u - T) / 0.45; ctx.fillStyle = 'rgba(150,130,100,' + (0.45 * (1 - k)).toFixed(2) + ')'; ctx.beginPath(); ctx.ellipse(x, y, 8 + k * 10, 3 + k * 4, 0, 0, Math.PI * 2); ctx.fill(); }
+  } else if (kind === 2) {                             // in two: top half one way, legs the other
+    const T = 0.45 + Math.hypot(d[1], d[2] * 2) / 260, k = Math.min(1, u / T), e = ease(k), lie = flip ? -1 : 1;
+    const ux = x + d[1] * e, uy = y + d[2] * e, lx = x + d[4] * e, ly = y + d[5] * e, z = 4 * 22 * k * (1 - k);
+    if (u >= T) {                                      // a smear of blood between them, pools under each
+      const g = Math.min(1, (u - T) / 2);
+      ctx.strokeStyle = zed ? 'rgba(46,40,14,0.7)' : 'rgba(90,16,12,0.7)'; ctx.lineWidth = 2;               // short drag marks behind each half
+      for (const [px, py, vx, vy] of [[ux, uy, d[1], d[2]], [lx, ly, d[4], d[5]]]) { const l = Math.hypot(vx, vy) || 1, m = Math.min(18, l * 0.4) * Math.min(1, g * 3); ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px - vx / l * m, py - vy / l * m); ctx.stroke(); }
+      pool(ux, uy, g, seed, 1.1, zed); pool(lx, ly, g, seed + 3, 0.8, zed);
+    }
+    const spinU = k < 1 ? k * Math.PI * 2.2 * lie : lie * Math.PI / 2, spinL = k < 1 ? -k * Math.PI * 1.6 * lie : -lie * Math.PI / 2;
+    bodyPart(sheet, f, 20, 20, lx, ly - 4 - z * 0.4 + (k < 1 ? 0 : 2), spinL, flip);         // legs (from the belt down)
+    bodyPart(sheet, f, 0, 21, ux, uy - 6 - z + (k < 1 ? 0 : 3), spinU, flip);                // head and chest
+    return;
+  } else {                                             // dropped: a stagger back, then down
+    const k = Math.min(1, u / 0.22), px = d ? x - d[1] * (1 - k) : x, py = d ? y - d[2] * (1 - k) : y;
+    pool(x, y, Math.max(0, Math.min(1, (u - 0.3) / 1.8)), seed, 1, zed);
+    if (u < 0.22) { bodyPart(sheet, f, 0, 40, px, py - 10 + k * 6, (flip ? -1 : 1) * k * 1.2, false); return; }
+  }
+  if (flip) { ctx.save(); ctx.translate(x, 0); ctx.scale(-1, 1); ctx.drawImage(sheet, f * 32, 4 * 40, 32, 40, -16, y - 30, 32, 40); ctx.restore(); }
+  else ctx.drawImage(sheet, f * 32, 4 * 40, 32, 40, x - 16, y - 30, 32, 40);
 }
 // Tanks of every kind share the hull; each has its own turret. Bikes show a rider unless parked empty.
 function drawArmour(type, sk, dead, x, y, h, th, ridden) {
@@ -2556,7 +2639,7 @@ function drawDynamicRow(list, ox, oy0) {
       if (isGroundVeh(e.type)) drawArmour(e.type, e.side >= 0 ? '_f' : '', e.alive ? '' : '_dead', x, y, e.h, e.th, true);
       else if (e.type === 'aa') ctx.drawImage(e.alive ? IMG.aa : IMG.aa_dead, frame16(e.h) * 64, 0, 64, 72, x - 32, y - 50, 64, 72);
       else if (isZed(e.type)) drawZombie(e, x, y);
-      else if (!e.alive) fallen(soldierSheet(e), x, y, e.h, e.fallT, e.x * 7 + e.y * 13);
+      else if (!e.alive) fallen(soldierSheet(e), x, y, e.h, e.fallT, e.death ? e.death[3] : e.x * 7 + e.y * 13, e.death);
       else {
         const row = e.engaged ? 3 : ((e.loop || e.goal || e.moving) ? [0, 1, 2, 1][Math.floor(e.phase) % 4] : 1);
         ctx.drawImage(soldierSheet(e), frame8(e.h) * 32, row * 40, 32, 40, x - 16, y - 30, 32, 40);
@@ -2575,7 +2658,7 @@ function drawDynamicRow(list, ox, oy0) {
       drawCiv(it.c, Math.round(it.c.x - ox), Math.round(it.c.y - oy));
     } else if (it.k === 'corpse') {
       const c = it.c;
-      fallen(IMG.soldier_f, Math.round(c.x - ox), Math.round(c.y - oy), c.h, c.t, c.x * 7 + c.y * 13);
+      fallen(IMG.soldier_f, Math.round(c.x - ox), Math.round(c.y - oy), c.h, c.t, c.x * 7 + c.y * 13, c.d);
     } else if (it.k === 'veh') {
       const v = it.v, x = Math.round(v.x - ox), y = Math.round(v.y - oy), d = v.alive ? '' : '_dead', sk = v.skin === 'f' ? '_f' : '';
       if (isGroundVeh(v.kind)) drawArmour(v.kind, sk, d, x, y, v.h, v.th, v.by >= 0);
@@ -3072,7 +3155,7 @@ function netMessage(m) {
     case 'emit': addEmitter({ x: m.e.x, y: m.e.y, kind: m.e.kind, until: time + m.e.left, rate: m.e.rate, w: m.e.w }); break;
     case 'egone': if (enemies[m.k]) { enemies[m.k].alive = false; enemies[m.k].gone = true; } break;
     case 'vgone': if (vehicles[m.id]) { vehicles[m.id].alive = false; vehicles[m.id].gone = true; vehicles[m.id].by = -1; } break;
-    case 'ekill': if (enemies[m.k]) { enemies[m.k].alive = false; enemies[m.k].fallT = time; } break;
+    case 'ekill': if (enemies[m.k]) { const e = enemies[m.k]; e.alive = false; e.fallT = time; if (m.d) { e.death = m.d; e.x = m.x; e.y = m.y; if (typeof deathFx === 'function') deathFx(e); } } break;
     case 'corpse': addCorpse(m.x, m.y, m.h); break;
     case 'tkill': if (world.targets[m.k]) world.targets[m.k].alive = false; break;
     case 'pick': if (pickups[m.k]) pickups[m.k].taken = true; break;
@@ -4623,7 +4706,7 @@ function drawAcid(ox, oy) {                                            // green 
 function drawZombie(e, x, y) {
   const def = ENEMY[e.type], sheet = IMG[def.sheet || 'zombie'], w = def.big ? 48 : 32, h = def.big ? 60 : 40, oy = def.big ? 46 : 30;
   if (!e.alive) {
-    if (!def.big) { fallen(sheet, x, y, e.h, e.fallT, e.x * 7 + e.y * 13); return; }
+    if (!def.big) { fallen(sheet, x, y, e.h, e.fallT, e.death ? e.death[3] : e.x * 7 + e.y * 13, e.death, true); return; }
     ctx.drawImage(sheet, frame8(e.h) * w, 4 * h, w, h, x - w / 2, y - oy, w, h);
     return;
   }
