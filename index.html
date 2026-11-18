@@ -2502,6 +2502,7 @@ function netMessage(m) {
     if (m.t === 'act') { interact(1); return; }
     if (m.t === 'kit') { setKit(1, m.k); return; }
     if (m.t === 'buy') { buy(1, m.id); return; }
+    if (m.t === 'repair') { repair(1, m.zone, m.kind, m.k); return; }
     if (m.t === 'upost') { upgradePost(1, m.type, m.idx); return; }
     if (m.t === 'order') { setOrders(1, m.o); return; }
     if (m.t === 'give') { giveUnits(1, m.type); return; }
@@ -3501,7 +3502,10 @@ function launchWave() {
   if (!held.length) return;
   const marching = enemies.filter((e) => e.alive && e.goal).length;
   if (marching >= w.size * 2) return;                          // do not let waves pile up forever
-  const from = held[Math.floor(Math.random() * held.length)], o = zoneCentre(from);
+  const can = (bi) => ({ hangar: factoryUp(world.bases[bi], 'hangar', 'e'), barracks: factoryUp(world.bases[bi], 'barracks', 'e'), fuel: factoryUp(world.bases[bi], 'fuel', 'e') });
+  const able = held.filter((bi) => { const c = can(bi); return c.hangar || c.barracks || c.fuel; });
+  if (!able.length) return;                                  // nothing left standing that makes units
+  const from = able[Math.floor(Math.random() * able.length)], o = zoneCentre(from), make = can(from);
   // nearest of your zones (or your home base), reachable by land if possible
   const mine = campaign.built.slice();
   const goals = mine.map((bi) => ({ zone: bi, d: Math.hypot(zoneCentre(bi).cx - o.cx, zoneCentre(bi).cy - o.cy) }));
@@ -3517,8 +3521,10 @@ function launchWave() {
     if (ok) { goal = g; byLand = true; break; }
   }
   if (!goal) goal = goals[0];
-  const n = w.size, air = byLand ? Math.round(n * (campaign.id >= 10 ? 0.2 : 0)) : Math.ceil(n / 3);
-  const tanks = byLand ? Math.round((n - air) * w.tanks) : 0, inf = byLand ? n - air - tanks : 0;
+  // the hangar builds armour and raiders, the barracks trains infantry, the fuel depot sends gunships
+  const n = w.size, air = !make.fuel ? 0 : byLand ? Math.round(n * (campaign.id >= 10 ? 0.2 : 0)) : Math.ceil(n / 3);
+  const tanks = byLand && make.hangar ? Math.round((n - air) * (make.barracks ? w.tanks : 1)) : 0, inf = byLand && make.barracks ? n - air - tanks : 0;
+  if (!tanks && !inf && !air) return;
   const spots = [];
   for (let k = 7; k <= 10 && spots.length < tanks + inf; k++) for (let y = o.cy - k; y <= o.cy + k; y++) for (let x = o.cx - k; x <= o.cx + k; x++) {
     if (Math.max(Math.abs(x - o.cx), Math.abs(y - o.cy)) !== k || cellBlocks('tank', x, y)) continue;
@@ -3533,7 +3539,7 @@ function launchWave() {
   };
   let k = 0;
   for (let j = 0; j < tanks && k < spots.length; j++, k++) add(armorType(j + campaign.waves, campaign.spec.garrison), spots[k][0], spots[k][1]);
-  for (let j = 0; j < inf && k < spots.length; j++, k++) add(j === 0 && inf > 1 ? raiderType(campaign.waves) : infType(j + campaign.waves * 3, campaign.spec.garrison), spots[k][0], spots[k][1]);   // a raider leads the infantry
+  for (let j = 0; j < inf && k < spots.length; j++, k++) add(j === 0 && inf > 1 && make.hangar ? raiderType(campaign.waves) : infType(j + campaign.waves * 3, campaign.spec.garrison), spots[k][0], spots[k][1]);   // a raider leads the infantry
   for (let j = 0; j < air; j++) add('gunship', o.cx + rand(-3, 3), o.cy + rand(-3, 3));
   campaign.waves++;
   recountTargets();
@@ -4404,6 +4410,52 @@ const SHOP = [
   { id: 'apache',  name: 'APACHE',       cost: 600, park: 'apache', info: 'for you to fly' },
 ];
 const UNIT_CAP = 24, START_CREDITS = 300;
+
+// --- what each building makes ------------------------------------------------------------------------------
+// Barracks train soldiers, hangars build ground vehicles, the fuel depot supplies helicopters. Cells are each
+// building's anchor (the south cell of its 2x2) from the base's top-left corner: ours ('f') and the enemy's ('e').
+const FACTORY = {
+  barracks: { name: 'BARRACKS',   cost: 200, f: [[9, 2]],         e: [[9, 6]], look: () => L.F_BARRACKS },
+  hangar:   { name: 'HANGAR',     cost: 300, f: [[2, 2], [2, 5]], e: [[5, 2]], look: () => L.F_HANGAR },
+  fuel:     { name: 'FUEL DEPOT', cost: 250, f: [[9, 9]],         e: [[6, 9]], look: () => L.F_FUEL },
+};
+const needOf = (item) => (item.park === 'scout' || item.park === 'apache' ? 'fuel' : item.park || isGroundVeh(item.units[0]) ? 'hangar' : 'barracks');
+const unitNeed = (type) => (type === 'gunship' ? 'fuel' : isGroundVeh(type) ? 'hangar' : 'barracks');
+function padRect(p) { return p.zone === -1 ? world.homeBase : p.zone === -3 ? world.homeBase2 : world.bases[p.zone]; }
+function factoryCells(r, kind, side) { return r ? FACTORY[kind][side].map(([x, y]) => (r.y + y) * SIZE + r.x + x) : []; }
+const standing = (i) => world.large[i] >= 0 && world.large[i] !== L.RUIN;
+function factoryUp(r, kind, side) { return factoryCells(r, kind, side).some(standing); }
+// Your pads whose base still has the building that makes this; nearest first.
+function padsFor(pi, kind, x, y) {
+  return friendlyPads().filter((p) => ownsPad(pi, p) && factoryUp(padRect(p), kind, 'f')).sort((a, b) => gdist(x, y, a.x, a.y) - gdist(x, y, b.x, b.y));
+}
+const baseName = (p) => (p.zone === -1 ? 'HOME' : p.zone === -3 ? (twoUp() ? 'P2 HOME' : 'HOME 2') : 'FORWARD BASE ' + (p.zone + 1));
+// Wrecked buildings at your bases, for the REPAIR buttons: [{ pad, kind, k, i }]
+function wrecked(pi) {
+  const out = [];
+  for (const p of friendlyPads()) if (ownsPad(pi, p)) for (const kind in FACTORY) factoryCells(padRect(p), kind, 'f').forEach((i, k) => { if (!standing(i)) out.push({ pad: p, kind, k, i }); });
+  return out;
+}
+function repair(pi, zone, kind, k) {
+  if (!authority()) { netSend({ t: 'repair', zone, kind, k }); return; }
+  const p = friendlyPads().find((q) => q.zone === zone), f = FACTORY[kind];
+  if (!p || !f || !ownsPad(pi, p)) return;
+  const i = factoryCells(padRect(p), kind, 'f')[k];
+  if (i === undefined || standing(i)) return;
+  if (credits(pi) < f.cost) { sayTo(pi, 'NOT ENOUGH CREDITS', 2); return; }
+  addCredits(pi, -f.cost);
+  const cx = i % SIZE, cy = (i / SIZE) | 0;
+  for (const [dx, dy] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) {         // clear the rubble off the 2x2 and stand it back up
+    const j = (cy + dy) * SIZE + cx + dx;
+    world.blocked[j] = 1; propHp[j] = 0;
+    if (j !== i && world.small[j] >= 0) { world.small[j] = -1; cellChanged(j); }
+  }
+  world.small[i] = -1; world.large[i] = f.look(); propHp[i] = 0; cellChanged(i);
+  flowCache.clear();
+  if (typeof repaintMap === 'function' && minimap) repaintMap(cx - 2, cy - 2, cx + 1, cy + 1);
+  sayTo(pi, f.name + ' REPAIRED AT ' + baseName(p) + '. ' + credits(pi) + ' CREDITS LEFT', 4);
+  if (campaign) autosave(false);
+}
 const ORDERS = ['FOLLOW', 'HOLD', 'ATTACK'];
 
 // --- seats: who owns what follows the person, not who hosts ------------------------------------------------
@@ -4467,7 +4519,9 @@ function buy(pi, id) {
   if (!item) return;
   if (credits(pi) < item.cost) { sayTo(pi, 'NOT ENOUGH CREDITS', 2); return; }
   if (item.units && myUnits(pi).length + item.units.length > UNIT_CAP) { sayTo(pi, 'YOU HAVE ' + UNIT_CAP + ' UNITS ALREADY', 2); return; }
-  const pad = nearestOwnPad(pi, h.x, h.y);
+  const need = needOf(item), pads = padsFor(pi, need, h.x, h.y);
+  if (!pads.length) { sayTo(pi, 'NO ' + FACTORY[need].name + ' STANDING: REPAIR ONE FIRST', 3); return; }
+  const pad = pads[0];
   const spots = [];
   for (let k = 2; k <= 6 && spots.length < 8; k++) for (let y = pad.cy - k; y <= pad.cy + k; y++) for (let x = pad.cx - k; x <= pad.cx + k; x++) {
     if (Math.max(Math.abs(x - pad.cx), Math.abs(y - pad.cy)) !== k) continue;
@@ -4492,7 +4546,7 @@ function buy(pi, id) {
     enemies.push(e);
     if (role === 'host') netSend({ t: 'enew', a: packExtra(e) });
   });
-  const where = pad.zone === -1 || pad.zone === -3 ? 'HOME' : 'YOUR FORWARD BASE';
+  const where = baseName(pad);
   sayTo(pi, 'BOUGHT ' + (item.park ? item.name + ', PARKED AT ' + where : item.units.length + ' ' + plural(unitWord(item.units[0]), item.units.length) + ' AT ' + where + ' (' + (players[pi].order || 'FOLLOW') + ')') + '. ' + credits(pi) + ' CREDITS LEFT', 4);
   if (campaign) autosave(false);
 }
@@ -4693,9 +4747,10 @@ function baseShop() {
   const items = SHOP.map((s) => {
     const n = s.units ? s.units.length : 0, short = s.cost - cr, full = n && n > room, t = s.units ? s.units[0] : s.park;
     const what = s.units ? n + ' ' + plural(unitWord(s.units[0]), n) : 'PARKED ON YOUR PAD';
-    const why = short > 0 ? 'NEED ' + short : full ? 'NO ROOM' : '';
+    const noFac = !padsFor(me, needOf(s), helis[me].x, helis[me].y).length;
+    const why = noFac ? 'NO ' + FACTORY[needOf(s)].name : short > 0 ? 'NEED ' + short : full ? 'NO ROOM' : '';
     const own = s.units && have(t) ? '<span class="own">HAVE ' + have(t) + '</span>' : '';
-    return '<button class="buy icon" data-id="' + s.id + '" title="' + s.name + ': ' + what + '. ' + s.info + '"' + (why ? ' disabled' : '') + '>' + own + (n > 1 ? '<span class="cnt">×' + n + '</span>' : '') +
+    return '<button class="buy icon" data-id="' + s.id + '" title="' + s.name + ': ' + what + '. ' + s.info + '. FROM THE ' + FACTORY[needOf(s)].name + '"' + (why ? ' disabled' : '') + '>' + own + (n > 1 ? '<span class="cnt">×' + n + '</span>' : '') +
       '<img src="' + unitThumb(t) + '" alt=""><b>' + s.name + '</b><i>' + (why || s.cost) + '</i></button>';
   }).join('');
   let give = '';
@@ -4705,10 +4760,17 @@ function baseShop() {
   }
   const note = shopAt >= 0 && message.at >= shopAt && message.until > time && message.text ? '<p class="note">' + message.text + '</p>' : '';     // the answer to what you just pressed
   return note + '<p class="sec">YOUR ARMY <span class="fine">' + mine.length + '/' + UNIT_CAP + ' · ORDERS ' + (player.order || 'FOLLOW') + '</span></p><p class="army">' + armySummary(mine) + '</p>' +
-    '<p class="sec">BUY <span class="fine">' + cr + ' CREDITS · NEW UNITS APPEAR AT YOUR NEAREST PAD</span></p><div class="shop">' + items + '</div>' + give;
+    '<p class="sec">BUY <span class="fine">' + cr + ' CREDITS · BARRACKS: SOLDIERS · HANGAR: VEHICLES · FUEL DEPOT: HELIS</span></p><div class="shop">' + items + '</div>' + repairs() + give;
+}
+function repairs() {
+  const list = wrecked(me);
+  if (!list.length) return '';
+  return '<p class="sec">REPAIR <span class="fine">WRECKED BUILDINGS STOP THEIR UNITS</span></p><div class="row">' + list.map((w) =>
+    '<button class="repair" data-zone="' + w.pad.zone + '" data-kind="' + w.kind + '" data-k="' + w.k + '"' + (credits(me) < FACTORY[w.kind].cost ? ' disabled' : '') + '>' + baseName(w.pad) + ' ' + FACTORY[w.kind].name + ' ' + FACTORY[w.kind].cost + '</button>').join('') + '</div>';
 }
 function baseShopWire(body) {
   for (const b of body.querySelectorAll('button.buy')) b.onclick = () => { shopAt = time; buy(me, b.dataset.id); setTimeout(openBase, role === 'guest' ? 250 : 0); };
+  for (const b of body.querySelectorAll('button.repair')) b.onclick = () => { shopAt = time; repair(me, +b.dataset.zone, b.dataset.kind, +b.dataset.k); setTimeout(openBase, role === 'guest' ? 250 : 0); };
   for (const b of body.querySelectorAll('button.give')) b.onclick = () => { shopAt = time; giveUnits(me, b.dataset.type); setTimeout(openBase, role === 'guest' ? 250 : 0); };
 }
 // What the enemy army shoots when none of you is in range: zombies, and your units.
