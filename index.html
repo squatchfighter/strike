@@ -319,9 +319,15 @@ function buildInteriors(w, seed, sp, h) {
     const last = floors[nFloors - 1];
     const free = last.free.slice();
     const spot = () => { const k = Math.floor(g() * free.length); return free.splice(k, 1)[0]; };
-    if (kind === 'hq' || kind === 'bunker') { const [x, y] = spot(); w.small[y * SIZE + x] = kind === 'hq' ? P.SERVER : P.AMMO; def.target = { f: nFloors - 1, x, y }; }
-    const nh = kind === 'tower' ? 3 : kind === 'bunker' ? 3 : kind === 'hq' ? 2 : 0;
+    // an enemy HQ has one mission (seeded): blow the mainframe, get the hostages out, or kill the general
+    if (kind === 'hq') def.mission = ['mainframe', 'hostages', 'general'][Math.floor(g() * 3)];
+    if (def.mission === 'mainframe' || kind === 'bunker') { const [x, y] = spot(); w.small[y * SIZE + x] = kind === 'hq' ? P.SERVER : P.AMMO; def.target = { f: nFloors - 1, x, y }; }
+    const nh = kind === 'tower' ? 3 : kind === 'bunker' ? 3 : def.mission === 'hostages' ? 4 : 0;
     for (let k = 0; k < nh && free.length; k++) { const [x, y] = spot(); def.hostages.push({ f: nFloors - 1, x, y }); }
+    if (def.mission === 'general') {                               // the general, with two bodyguards, on the bottom floor
+      const [x, y] = spot(); w.spawns.push({ type: 'general', x, y, base: -9, ins: id });
+      for (let k = 0; k < 2 && free.length; k++) { const [bx, by] = spot(); w.spawns.push({ type: k ? 'sniper' : 'gren', x: bx, y: by, base: -9, ins: id }); }
+    }
     floors.forEach((fl, f) => {                                    // guards: more on the floor with the prize
       const n = 2 + Math.ceil(level / 2) + (f === nFloors - 1 ? 1 : 0) + (kind === 'bunker' ? 1 : 0);
       const pool = fl.free.filter(([x, y]) => Math.hypot(x - fl.ex, y - fl.ey) > 4 && !def.hostages.some((q) => q.x === x && q.y === y) && !(def.target && def.target.x === x && def.target.y === y));
@@ -1347,6 +1353,7 @@ const ENEMY = {
   gren:   { name: 'GRENADIER', hp: 12, range: 330, rate: 2.8, dmg: 14, hit: 46, speed: 28, shot: 430,  score: 40, radius: 10, z: 9, boom: 8, foot: true, lob: true, groundOnly: true, sheet: '_gren' },
   rocket: { name: 'ROCKET SOLDIER', hp: 12, range: 560, rate: 4.6, dmg: 26, hit: 36, speed: 28, shot: 650, score: 80, radius: 10, z: 10, boom: 8, foot: true, vsGround: 1.6, sheet: '_rocket' },
   flame:  { name: 'FLAMETHROWER', hp: 16, range: 150, rate: 0.25, dmg: 4, hit: 40, speed: 32, shot: 420, score: 50, radius: 10, z: 8, boom: 14, foot: true, groundOnly: true, sheet: '_flame' },
+  general: { name: 'GENERAL', hp: 70, range: 400, rate: 0.9, dmg: 5, hit: 34, speed: 26, shot: 1200, score: 1500, radius: 10, z: 9, boom: 8, foot: true },
   sniper: { name: 'SNIPER', hp: 10, range: 700, rate: 4.2, dmg: 9, hit: 28, speed: 26, shot: 2600, score: 60, radius: 10, z: 9, boom: 8, foot: true, sheet: '_sniper' },
   // more armour (both sides): look = how its shots are drawn (tank shell, flame, rocket, artillery, machine gun)
   ftank:  { name: 'FLAME TANK',  hp: 260, range: 220, rate: 0.12, dmg: 6,  hit: 44, speed: 44, shot: 460, score: 350, radius: 26, z: 12, boom: 30, vsGround: 2.0, hunts: true, groundOnly: true, look: 'flame' },
@@ -1562,7 +1569,14 @@ function updateGates(dt) {
     if (open) for (const i of cells) gateOpen.add(i);
   }
 }
-const posBlocks = (kind, x, y, who) => cellBlocks(kind, Math.round(mapX(x, y)), Math.round(mapY(x, y)), who) || steepAt(x, y) > (MAX_CLIMB[kind] || 34);
+const posBlocks = (kind, x, y, who) => {
+  const cx = Math.round(mapX(x, y)), cy = Math.round(mapY(x, y));
+  if (world.inside && cx >= 0 && cy >= 0 && cx < SIZE && cy < SIZE && world.inside[cy * SIZE + cx]) {      // indoors: a body, not a point, so nobody clips a wall
+    for (const [dx, dy] of [[0, 0], [7, 0], [-7, 0], [0, 4], [0, -4]]) if (cellBlocks(kind, Math.round(mapX(x + dx, y + dy)), Math.round(mapY(x + dx, y + dy)), who)) return true;
+    return false;
+  }
+  return cellBlocks(kind, cx, cy, who) || steepAt(x, y) > (MAX_CLIMB[kind] || 34);
+};
 // The one action button: land and get out, get out, or get in.
 function interactHint(pi) {
   const pl = players[pi], h = helis[pi];
@@ -2543,6 +2557,10 @@ function drawDynamicRow(list, ox, oy0) {
       else {
         const row = e.engaged ? 3 : ((e.loop || e.goal || e.moving) ? [0, 1, 2, 1][Math.floor(e.phase) % 4] : 1);
         ctx.drawImage(soldierSheet(e), frame8(e.h) * 32, row * 40, 32, 40, x - 16, y - 30, 32, 40);
+        if (e.type === 'general') {                     // the general: a gold star over his head
+          const b = Math.round(Math.sin(time * 3) * 1.5); ctx.fillStyle = '#ffe040';
+          ctx.fillRect(x - 3, y - 38 + b, 7, 1); ctx.fillRect(x, y - 41 + b, 1, 7); ctx.fillRect(x - 1, y - 39 + b, 3, 3);
+        }
       }
     } else if (it.k === 'post') {
       drawPost(it.p, Math.round(it.p.x - ox), Math.round(it.p.y - oy));
@@ -5167,6 +5185,11 @@ function marchTo(e, def, g, dt) {
 const GRID_DIRS = [Math.PI / 4, 3 * Math.PI / 4, -3 * Math.PI / 4, -Math.PI / 4, 0, Math.PI / 2, Math.PI, -Math.PI / 2];
 function unitMove(e, def, tx, ty, dt, fast) {
   const kind = moveKind(e.type), who = e.side >= 0 ? 'p' : 'a';
+  if (world.inside && typeof navStep === 'function' && insideAt(e.x, e.y) >= 0) {        // indoors: room to room, never through a wall
+    if (posBlocks(kind, e.x, e.y, who)) { unstick(e); return; }
+    const w = navStep(e.x, e.y, tx, ty); if (w) { tx = w.x; ty = w.y; }
+    e.detour = 0;
+  }
   let gx = tx, gy = ty;
   if (e.detour > time) {                                   // going round: next cell down the flow field to the target
     const f = flowTo(Math.round(mapX(tx, ty)), Math.round(mapY(tx, ty)), who), cx = Math.round(mapX(e.x, e.y)), cy = Math.round(mapY(e.x, e.y)), here = f[cy * SIZE + cx];
@@ -5207,7 +5230,7 @@ function updateFriends(dt) {
     if (!e.alive || !(e.side >= 0)) continue;
     const def = ENEMY[e.type], opi = playerAt(e.side), owner = opi >= 0 ? players[opi] : null, oh = opi >= 0 ? helis[opi] : null;
     let order = e.order || 'FOLLOW';
-    if (order === 'FOLLOW' && (!owner || owner.dead || (world.inside && insideAt(oh.x, oh.y) !== insideAt(e.x, e.y)))) order = 'HOLD';     // you went in (or out) without them: they wait
+    if (order === 'FOLLOW' && (!owner || owner.dead || (world.inside && spotAt(oh.x, oh.y) !== spotAt(e.x, e.y)))) order = 'HOLD';     // you went in, out, up or down without them: they wait
     e.moving = false;
     e.scan = (e.scan || 0) - dt;
     if (e.scan <= 0) { e.scan = rand(0.3, 0.5); e.tg = hostileNear(e, def, def.range * (e.gar >= 0 ? 1.2 : 1)); }
@@ -5233,9 +5256,9 @@ function updateFriends(dt) {
     } else e.engaged = false;
     // move
     if (order === 'FOLLOW') {
-      const sl = e.slot || 0, ring = 46 + (sl % 3) * 26, a = (sl * 2.39996) % (Math.PI * 2);
-      const tx = oh.x + Math.cos(a) * ring, ty = oh.y + Math.sin(a) * ring * 0.5, d = gdist(e.x, e.y, tx, ty);
-      if (d > 140) {                                  // far behind: find the way round buildings and water (flow field to your cell)
+      const sl = e.slot || 0, ring = 46 + (sl % 3) * 26, a = (sl * 2.39996) % (Math.PI * 2), indoors = world.inside && insideAt(e.x, e.y) >= 0;
+      const tx = indoors ? oh.x : oh.x + Math.cos(a) * ring, ty = indoors ? oh.y : oh.y + Math.sin(a) * ring * 0.5, d = gdist(e.x, e.y, tx, ty) - (indoors ? 30 + (sl % 4) * 12 : 0);   // indoors: close up behind you, not a ring through the walls
+      if (d > 140 && !(world.inside && insideAt(e.x, e.y) >= 0)) {     // far behind: find the way round buildings and water (flow field to your cell); indoors unitMove finds the way
         const ocx = Math.round(mapX(oh.x, oh.y)), ocy = Math.round(mapY(oh.x, oh.y));
         if (!owner.flow || owner.flowCx !== ocx || owner.flowCy !== ocy) { if ((owner.flowT || 0) < time) { owner.flow = flowTo(ocx, ocy, 'p'); owner.flowCx = ocx; owner.flowCy = ocy; owner.flowT = time + 0.8; } }
         const f = owner.flow, cx = Math.round(mapX(e.x, e.y)), cy = Math.round(mapY(e.x, e.y)), here = f ? f[cy * SIZE + cx] : 65535;
@@ -5243,7 +5266,7 @@ function updateFriends(dt) {
         if (here < 65535) for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) { const v = f[(cy + oy) * SIZE + cx + ox]; if (v < best && !(ox && oy && (f[cy * SIZE + cx + ox] >= 65535 || f[(cy + oy) * SIZE + cx] >= 65535))) { best = v; bx = cx + ox; by = cy + oy; } }
         if (best < here) unitMove(e, def, cellX(bx, by), cellY(bx, by), dt, true);
         else unitMove(e, def, tx, ty, dt, true);
-      } else if (d > 26) unitMove(e, def, tx, ty, dt, false);
+      } else if (d > 26) unitMove(e, def, tx, ty, dt, indoors && d > 60);        // indoors they run to catch up
     } else if (posted) {
       const h = e.hold;
       if (h) {
@@ -6046,6 +6069,7 @@ function objectiveRows() {
   if (priorityBase() >= 0) row('★', '#f2d27a', 'PRIORITY: ★ BASE FIRST', '+400');
   for (const r of rescues) row('▲', '#8fd8ec', 'RESCUE ' + (r.kind === 'civ' ? 'CIVILIANS' : r.kind === 'pilot' ? 'PILOT' : 'PRISONERS') + (r.n > 1 ? ' ×' + r.n : ''), '+' + RESCUE_PAY[r.kind] + (r.n > 1 ? ' EA' : ''));
   siteRows(row);
+  if (typeof MISSION_TEXT !== 'undefined' && world.interiors) for (const m of ['mainframe', 'hostages', 'general']) { const n = world.interiors.filter((d) => d.mission === m && !(intState[d.id] && intState[d.id].done)).length; if (n) row(m === 'general' ? '★' : m === 'hostages' ? '▲' : '■', m === 'general' ? '#ffe040' : '#f0b040', 'HQ: ' + MISSION_TEXT[m] + (n > 1 ? ' ×' + n : ''), 'TAKES THE HQ'); }
   if (campaign.spec.waves && armyOn()) row('!', '#f09a7a', 'COUNTER-ATTACKS', 'EXPECTED');
   return rows;
 }
@@ -6241,7 +6265,7 @@ function interiorHint(pi) {
   const pl = players[pi], h = helis[pi];
   if (pl.kind !== 'foot') return '';
   const k = pIns(pi);
-  if (k < 0) { const dn = doorNear(pi); return dn >= 0 ? 'GO INSIDE ' + world.interiors[dn].name : ''; }
+  if (k < 0) { const dn = doorNear(pi), d = world.interiors[dn]; return dn >= 0 ? 'GO INSIDE ' + d.name + (d.mission ? ': ' + MISSION_TEXT[d.mission] : '') : ''; }
   const d = world.interiors[k], f = floorOf(d, h.x, h.y), fl = d.floors[f];
   if (!fl) return '';
   const near = (cx, cy, r) => gdist(h.x, h.y, cellX(cx, cy), cellY(cx, cy)) < r;
@@ -6255,7 +6279,7 @@ function interiorHint(pi) {
 }
 function interiorAct(pi, hint) {
   const h = helis[pi];
-  if (hint.startsWith('GO INSIDE')) { const d = world.interiors[doorNear(pi)]; moveParty(pi, d.floors[0].ex, d.floors[0].ey, -Math.PI * 3 / 4); sayTo(pi, d.name + (d.target ? ': PLANT A CHARGE ON THE ' + (d.kind === 'hq' ? 'SERVERS' : 'AMMO DUMP') : d.kind === 'site' ? ': CLEAR IT OUT' : ': FIND THE HOSTAGES'), 4); return true; }
+  if (hint.startsWith('GO INSIDE')) { const d = world.interiors[doorNear(pi)]; moveParty(pi, d.floors[0].ex, d.floors[0].ey, -Math.PI * 3 / 4); sayTo(pi, d.name + ': ' + (d.mission ? MISSION_TEXT[d.mission] : d.target ? 'PLANT A CHARGE ON THE AMMO DUMP' : d.kind === 'site' ? 'CLEAR IT OUT' : 'FIND THE HOSTAGES'), 4); return true; }
   const k = pIns(pi); if (k < 0) return false;
   const d = world.interiors[k], f = floorOf(d, h.x, h.y), fl = d.floors[f];
   if (hint === 'GO OUTSIDE') {
@@ -6290,6 +6314,62 @@ function interiorAct(pi, hint) {
   }
   return false;
 }
+// --- getting about inside: shortest way between cells on a floor (4 directions), cached per goal cell ---------------------
+const navCache = new Map();
+const walkable = (x, y) => !cellBlocks('foot', x, y);
+function navField(gx, gy) {
+  const key = gy * SIZE + gx;
+  let f = navCache.get(key);
+  if (f && f.t > time - 2) return f.d;
+  const ox = gx - 20, oy = gy - 20, N = 41, d = new Int16Array(N * N).fill(-1);
+  const q = [[gx, gy]]; d[20 * N + 20] = 0;
+  for (let h = 0; h < q.length; h++) {
+    const [x, y] = q[h], dd = d[(y - oy) * N + x - ox];
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy, k = (ny - oy) * N + nx - ox;
+      if (nx - ox < 0 || ny - oy < 0 || nx - ox >= N || ny - oy >= N || d[k] >= 0) continue;
+      const i = ny * SIZE + nx;
+      if (!world.inside[i] || world.inside[i] !== world.inside[gy * SIZE + gx] || world.inFloor[i] !== world.inFloor[gy * SIZE + gx] || !walkable(nx, ny)) continue;
+      d[k] = dd + 1; q.push([nx, ny]);
+    }
+  }
+  if (navCache.size > 200) navCache.delete(navCache.keys().next().value);
+  navCache.set(key, f = { d: { d, ox, oy, N }, t: time });
+  return f.d;
+}
+// The next point to walk to from (x, y) toward (tx, ty) on the same floor: the centre of the next cell on the way.
+function navStep(x, y, tx, ty) {
+  const cx = Math.round(mapX(x, y)), cy = Math.round(mapY(x, y)), gx = Math.round(mapX(tx, ty)), gy = Math.round(mapY(tx, ty));
+  if (spotAt(x, y) !== spotAt(tx, ty) || (cx === gx && cy === gy)) return null;
+  const F = navField(gx, gy), at = (px, py) => { const k = (py - F.oy) * F.N + px - F.ox; return px - F.ox < 0 || py - F.oy < 0 || px - F.ox >= F.N || py - F.oy >= F.N ? -1 : F.d[k]; };
+  const here = at(cx, cy);
+  if (here < 0) return null;
+  let best = null, bd = here;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const v = at(cx + dx, cy + dy); if (v >= 0 && v < bd) { bd = v; best = [cx + dx, cy + dy]; } }
+  if (!best) return null;
+  // off the middle of the cell? line up first, so corners are never cut
+  const mx = cellX(cx, cy), my = cellY(cx, cy);
+  if (gdist(x, y, mx, my) > 6 && (best[0] !== cx ? Math.abs(mapY(x, y) - cy) > 0.18 : Math.abs(mapX(x, y) - cx) > 0.18)) return { x: mx, y: my };
+  return { x: cellX(best[0], best[1]), y: cellY(best[0], best[1]) };
+}
+// Somehow in a wall (pushed, spawned): back to the middle of the nearest open cell next to it, never across a wall.
+function unstick(o) {
+  const cx = Math.round(mapX(o.x, o.y)), cy = Math.round(mapY(o.x, o.y));
+  let best = null, bd = 1e9;
+  for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const x = cx + dx, y = cy + dy;
+    if (!walkable(x, y) || !world.inside[y * SIZE + x]) continue;
+    const d = gdist(o.x, o.y, cellX(x, y), cellY(x, y)); if (d < bd) { bd = d; best = [x, y]; }
+  }
+  if (best) { o.x = cellX(best[0], best[1]); o.y = cellY(best[0], best[1]); }
+}
+// Open cells you can walk to from (cx, cy), nearest first (for placing the people who come in with you).
+function nearCells(cx, cy, n) {
+  const F = navField(cx, cy), out = [];
+  for (let k = 0; k < F.d.length; k++) if (F.d[k] > 0) out.push([F.d[k], F.ox + (k % F.N), F.oy + ((k / F.N) | 0)]);
+  out.sort((a, b) => a[0] - b[0]);
+  return out.slice(0, n).map(([, x, y]) => [x, y]);
+}
 // Move a player and whoever is with them (soldiers on FOLLOW, freed hostages) to a cell. Returns the hostages that came.
 function moveParty(pi, cx, cy, heading) {
   const h = helis[pi], x0 = h.x, y0 = h.y, from = pIns(pi), x = cellX(cx, cy), y = cellY(cx, cy);
@@ -6297,7 +6377,10 @@ function moveParty(pi, cx, cy, heading) {
   for (const e of enemies) if (e.alive && e.side === seatOf(pi) && (e.order || 'FOLLOW') === 'FOLLOW' && isFoot(e.type) && !(e.gar >= 0) && insideAt(e.x, e.y) === from && gdist(e.x, e.y, x0, y0) < 340) party.push(e);
   const hs = hostages.filter((q) => q.alive && q.st === 0 && q.by === pi && insideAt(q.x, q.y) === from && gdist(q.x, q.y, x0, y0) < 340);
   setPlayerKind(pi, 'foot', -1, x, y, heading);
-  [...party, ...hs].forEach((o, n) => {
+  const list = [...party, ...hs], inside = world.inside[cy * SIZE + cx];
+  const spots = inside ? nearCells(cx, cy, list.length + 2) : [];
+  list.forEach((o, n) => {
+    if (spots[n]) { o.x = cellX(spots[n][0], spots[n][1]); o.y = cellY(spots[n][0], spots[n][1]); return; }      // a cell you can walk to, beside you
     const a = n * 2.39996, r = 18 + (n % 3) * 10;
     let ox = x + Math.cos(a) * r, oy = y + Math.sin(a) * r * 0.5;
     if (posBlocks('foot', ox, oy, 'p')) { ox = x; oy = y; }
@@ -6322,14 +6405,37 @@ function updateInteriors(dt) {
     const pl = players[q.by], h = helis[q.by];
     if (!pl || !pl.active || pl.dead || insideAt(h.x, h.y) !== q.k) { q.st = 8; continue; }           // you left them (or fell): they wait
     const d = gdist(q.x, q.y, h.x, h.y);
+    if (posBlocks('foot', q.x, q.y, 'p')) { unstick(q); continue; }
     if (d > 34) {
-      const a = gangle(q.x, q.y, h.x, h.y), sp = 85 * dt;
-      for (const da of [0, 0.7, -0.7, 1.4, -1.4]) {
+      const w = navStep(q.x, q.y, h.x, h.y) || { x: h.x, y: h.y };
+      const a = gangle(q.x, q.y, w.x, w.y), sp = 85 * dt;
+      for (const da of [0, 0.5, -0.5, 1.1, -1.1]) {
         const nx = q.x + Math.cos(a + da) * sp, ny = q.y + Math.sin(a + da) * sp * 0.5;
         if (!posBlocks('foot', nx, ny, 'p')) { q.x = nx; q.y = ny; q.h = a + da; q.phase += dt * 8; break; }
       }
     }
   }
+  hqMissions();
+}
+// HQ missions: the general dead, or every hostage walked out, and the HQ falls (the mainframe goes with the charge).
+const MISSION_TEXT = { mainframe: 'BLOW UP THE MAINFRAME', hostages: 'RESCUE THE HOSTAGES', general: 'KILL THE GENERAL' };
+function hqMissions() {
+  for (const d of world.interiors) {
+    if (d.kind !== 'hq' || intState[d.id].done) continue;
+    if (d.mission === 'general' && !enemies.some((e) => e.type === 'general' && e.alive && insideAt(e.x, e.y) === d.id)) hqFalls(d.id, 'THE GENERAL IS DEAD');
+    if (d.mission === 'hostages' && hostages.filter((q) => q.k === d.id).every((q) => q.st === 9)) hqFalls(d.id, 'THE HOSTAGES ARE OUT');
+  }
+}
+function hqFalls(k, why) {
+  const d = world.interiors[k], st = intState[k];
+  st.done = true; st.charge = -1;
+  for (const e of enemies) if (e.alive && !(e.side >= 0) && insideAt(e.x, e.y) === k) { e.alive = false; e.gone = true; }   // the rest give up
+  for (let pi = 0; pi < 2; pi++) if (players[pi].active && !players[pi].dead && pIns(pi) === k) moveParty(pi, d.door[0], d.door[1], Math.PI / 4);
+  const t = world.targets.find((o) => o.i === d.bld && o.alive);
+  if (t) destroyTarget(t, st.by >= 0 ? st.by : 0);
+  say(why + ': THE ENEMY HQ HAS FALLEN', 6);
+  if (role === 'host') netSend({ t: 'idone', k });
+  if (campaign) autosave(true);
 }
 function blowInterior(k) {
   const d = world.interiors[k], st = intState[k];
@@ -6400,11 +6506,21 @@ function drawDoors(ox, oy) {
     if (intState[d.id] && intState[d.id].done) continue;
     const x = Math.round(cellX(d.door[0], d.door[1]) - ox), y = Math.round(cellY(d.door[0], d.door[1]) - oy - liftAt(cellX(d.door[0], d.door[1]), cellY(d.door[0], d.door[1])));
     if (x < -20 || y < -20 || x > W + 20 || y > H + 40) continue;
-    const b = Math.round(Math.sin(time * 4 + d.id) * 2), c = d.target ? '#f0b040' : d.hostages.length ? '#fff0a0' : '#a0d0f0';
+    const b = Math.round(Math.sin(time * 4 + d.id) * 2), c = d.mission === 'general' ? '#ffe040' : d.target ? '#f0b040' : d.hostages.length ? '#fff0a0' : '#a0d0f0';
     ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(x - 6, y - 3, 13, 5);
     ctx.fillStyle = c; ctx.fillRect(x - 5, y - 2, 11, 3);
     if (near || Math.floor(time * 2) % 2) { ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(x - 5, y - 20 + b); ctx.lineTo(x + 6, y - 20 + b); ctx.lineTo(x + 0.5, y - 12 + b); ctx.fill(); }
   }
+}
+
+// Going inside zooms in close (and back out to how it was when you come out), whoever moved you.
+let lastView = -1, zoomedForInside = false;
+function insideZoom() {
+  const v = viewIns();
+  if (v === lastView) return;
+  if (v >= 0 && lastView < 0 && CONFIG.viewHeight !== 360) { CONFIG.viewHeight = 360; resize(); snapCamera(); zoomedForInside = true; }
+  else if (v < 0 && lastView >= 0 && zoomedForInside) { zoomedForInside = false; if (CONFIG.viewHeight === 360) { CONFIG.viewHeight = 540; resize(); snapCamera(); } }
+  lastView = v;
 }
 
 // ---------------------------------------------------------------------------
@@ -7363,6 +7479,7 @@ function slopeWarm(ox, oy, budgetMs) {
 }
 
 function draw(dt) {
+  if (typeof insideZoom === 'function') insideZoom();
   ctx.setTransform(RES, 0, 0, RES, 0, 0); shadowCtx.setTransform(RES, 0, 0, RES, 0, 0);
   const ox = Math.round(cam.x - W / 2), oy = Math.round(cam.y - H / 2);        // no screen shake: explosions and hits no longer jolt the view
   const waterFrame = Math.floor(time / 0.4), surfPhase = Math.floor(time / 0.55);
