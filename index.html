@@ -1749,6 +1749,7 @@ function liftAt(x, y) { return groundAt(x, y).h; }
 function steepAt(x, y) { const g = groundAt(x, y); return Math.hypot(g.gx, g.gy); }
 const MAX_CLIMB = { foot: 34, tank: 28, jeep: 22 };
 function explosion(x, y, z, size, localOnly) {
+  if (size >= 14) bldImpact(x, y, z || 0, size * 3, size * 1.6);          // the building it went off against
   if (typeof soundBoom === 'function') soundBoom(x, y, size);
   if (role === 'host' && !localOnly) netSend({ t: 'boom', x: Math.round(x), y: Math.round(y), z: Math.round(z), size: Math.round(size) });
   puff('flash', x, y, z, { r: size * 1.5, life: 0.10 });
@@ -2149,6 +2150,7 @@ function updateShots(dt) {
     if (k < 1 && !s.blocked) continue;
     if (s.bul && !s.ext && !s.blocked && shotMissed(s)) { extendShot(s); continue; }      // a miss flies on and lands behind
     shots[i] = shots[shots.length - 1]; shots.pop();
+    if (s.bul || (s.blocked && !s.noHit && s.dmg !== undefined && s.dmg < 20)) bldImpact(s.x1, s.y1, s.z1, 4, 4);     // bullet pocks
     if (s.ext || (s.blocked && s.bul)) { strayLands(s); continue; }
     if (!s.enemy) {
       const w = WEAPONS[s.slot];
@@ -3158,6 +3160,135 @@ function recoilOff(ent) {
   if (!ent || !ent.recoilT) return 0;
   const k = 1 - (time - ent.recoilT) / 0.24;
   return k > 0 ? k * k * (ent.recoilK || 1) * 4 : 0;
+}
+
+// --- building damage you can see ------------------------------------------------------------------------------------------
+// Every building, house, tower and big lot keeps the marks of what hit it (bdmg, by its anchor cell): bullet pocks where
+// rounds landed, scorch where blasts went off, and as it takes damage (counted here from the hits, so the guest sees the
+// same) chunks knocked out at 1/2 and big holes, bites out of the roofline and smoke at 3/4 (fire at the end). The marks
+// are painted onto a copy of the sprite (only where the sprite is, `source-atop`), kept until something new hits it; the
+// game draws that copy instead of the sheet. Masonry flies off with every explosion. Knocked down: the marks go with it.
+const bdmg = new Map();
+const BMASK = new Map();
+function bldFrame(kind) { return kind === 'x' ? XLS : kind === 'l' ? LARGE : SMALL; }
+function bldSheet(kind) { return kind === 'x' ? IMG.props_xl : kind === 'l' ? IMG.props_large : IMG.props_small; }
+function bldSrc(kind, idx) { const F = bldFrame(kind), k = kind === 'x' ? idx - 100 : idx; return [(k % F.cols) * F.w, ((k / F.cols) | 0) * F.h]; }
+function bldMask(kind, idx) {
+  const key = kind + idx;
+  if (BMASK.has(key)) return BMASK.get(key);
+  const F = bldFrame(kind), [sx, sy] = bldSrc(kind, idx), c = document.createElement('canvas'); c.width = F.w; c.height = F.h;
+  let m = null;
+  try {
+    const g = c.getContext('2d'); g.drawImage(bldSheet(kind), sx, sy, F.w, F.h, 0, 0, F.w, F.h);
+    const a = g.getImageData(0, 0, F.w, F.h).data, al = new Uint8Array(F.w * F.h), top = [];
+    for (let k = 0; k < al.length; k++) al[k] = a[k * 4 + 3] > 40 ? 1 : 0;
+    for (let x = 2; x < F.w - 2; x += 3) for (let y = 0; y < F.h; y++) if (al[y * F.w + x]) { top.push([x, y]); break; }
+    m = { w: F.w, h: F.h, al, top };
+  } catch (e) { m = null; }
+  BMASK.set(key, m);
+  return m;
+}
+// Which building is at (or within r cells of) this spot: { a: anchor cell, kind: 's' | 'l' | 'x', idx: sprite index }.
+function bldAt(x, y, r) {
+  const mx = Math.round(mapX(x, y)), my = Math.round(mapY(x, y));
+  let best = null, bd = 1e9;
+  for (let cy = my - r; cy <= my + r; cy++) for (let cx = mx - r; cx <= mx + r; cx++) {
+    if (cx < 1 || cy < 1 || cx >= SIZE - 1 || cy >= SIZE - 1) continue;
+    const i = cy * SIZE + cx, d = Math.abs(cx - mx) + Math.abs(cy - my);
+    let hit = null;
+    const xa = world.xlOf ? world.xlOf[i] : -1;
+    if (xa >= 0 && world.large[xa] >= 100 && !isRuin(world.large[xa])) hit = { a: xa, kind: 'x', idx: world.large[xa] };
+    else {
+      for (const [ax, ay] of [[cx, cy], [cx + 1, cy], [cx, cy + 1], [cx + 1, cy + 1]]) { const j = ay * SIZE + ax, lg = world.large[j]; if (lg >= 0 && lg < 100 && lg !== L.RUIN) { hit = { a: j, kind: 'l', idx: lg }; break; } }
+      if (!hit) { const sp = world.small[i]; if (sp >= 0 && (GARRISON_HOUSES.has(sp) || sp === P.TOWER)) hit = { a: i, kind: 's', idx: sp }; }
+    }
+    if (hit && d < bd) { bd = d; best = hit; }
+  }
+  return best;
+}
+// Where the anchor of a building is drawn (ground point of its sprite frame) in world px.
+function bldAnchor(b) {
+  const ax = b.a % SIZE, ay = (b.a / SIZE) | 0;
+  return { x: cellX(ax, ay), y: cellY(ax, ay) - (b.kind === 'x' ? (xlN(b.idx) - 1) * (TH / 2) : 0) };
+}
+function bldImpact(x, y, z, dmg, blast) {
+  if (!world || !world.small) return;
+  const b = bldAt(x, y, blast >= 30 ? 1 : 0);
+  if (!b) return;
+  let e = bdmg.get(b.a);
+  if (!e || e.idx !== b.idx) { e = { a: b.a, kind: b.kind, idx: b.idx, vd: 0, holes: [], big: [], ver: 1, stage: 0, max: b.kind === 's' ? (SMALL_DEF[b.idx] ? SMALL_DEF[b.idx].hp : 100) : LARGE_HP[b.idx] || 300 }; bdmg.set(b.a, e); }
+  const m = bldMask(b.kind, b.idx); if (!m) return;
+  const F = bldFrame(b.kind), an = bldAnchor(b);
+  // the spot on the sprite: straight in from where it hit, or the nearest part of the building to that
+  let fx = Math.round(x - an.x + F.ax), fy = Math.round(y - an.y - z + F.ay);
+  const solid = (px, py) => px >= 0 && py >= 0 && px < m.w && py < m.h && m.al[py * m.w + px];
+  if (!solid(fx, fy)) {
+    let found = false;
+    for (let rr = 2; rr <= 40 && !found; rr += 2) for (let k = 0; k < 12 && !found; k++) { const a = k * Math.PI / 6, px = Math.round(fx + Math.cos(a) * rr), py = Math.round(fy + Math.sin(a) * rr); if (solid(px, py)) { fx = px; fy = py; found = true; } }
+    if (!found) { const t = m.top[Math.floor(Math.random() * m.top.length)]; if (!t) return; fx = t[0]; fy = t[1] + 10; }
+  }
+  e.vd += dmg;
+  const f = e.vd / e.max, seed = Math.random() * 1000;
+  if (dmg < 20) { e.holes.push([fx, fy, seed]); if (e.holes.length > 44) e.holes.shift(); }
+  else {
+    e.big.push({ t: 'scorch', x: fx, y: fy, r: Math.min(16, 5 + blast * 0.22), seed });
+    for (let k = 0; k < 4; k++) e.holes.push([fx + Math.round(rand(-10, 10)), fy + Math.round(rand(-7, 7)), seed + k]);
+    while (e.holes.length > 44) e.holes.shift();
+    for (let k = 0; k < 6; k++) puff('chunk', x + rand(-6, 6), y + rand(-3, 3), Math.max(4, z), { vx: rand(-60, 60), vy: rand(-30, 30), vz: rand(50, 150), life: rand(2, 4), w: rand(1.5, 3), hh: rand(1, 2.5), c: ['#8a8070', '#6a6258', '#4a443e'][k % 3], spin: 0, vs: rand(-10, 10) });
+  }
+  const stage = f >= 0.75 ? 2 : f >= 0.5 ? 1 : 0;
+  while (e.stage < stage) {                                   // chunks knocked out, then the roofline goes
+    e.stage++;
+    const n = e.stage === 1 ? 2 : 3;
+    for (let k = 0; k < n; k++) {
+      const near = k === 0, pt = near ? [fx, fy] : (() => { for (let q = 0; q < 30; q++) { const px = Math.floor(Math.random() * m.w), py = Math.floor(Math.random() * m.h); if (solid(px, py)) return [px, py]; } return [fx, fy]; })();
+      e.big.push({ t: 'chunk', x: pt[0], y: pt[1], r: (e.stage === 1 ? rand(5, 8) : rand(7, 12)) * (b.kind === 's' ? 0.7 : b.kind === 'x' ? 1.4 : 1), seed: Math.random() * 1000 });
+    }
+    if (e.stage === 2) for (let k = 0; k < 3; k++) { const t = m.top[Math.floor(Math.random() * m.top.length)]; if (t) e.big.push({ t: 'bite', x: t[0], y: t[1] + 2, r: rand(5, 10) * (b.kind === 'x' ? 1.4 : 1), seed: Math.random() * 1000 }); }
+  }
+  if (e.big.length > 18) e.big.splice(0, e.big.length - 18);
+  e.ver++;
+}
+// The damaged sprite: the frame from the sheet (HD when on), with the marks painted on.
+function bldCanvas(e) {
+  if (e.canvas && e.cver === e.ver && e.cres === RES) return e.canvas;
+  const F = bldFrame(e.kind), R = RES, sheet = bldSheet(e.kind), src = R === 2 && sheet.__hd ? sheet.__hd : sheet, mul = src === sheet ? 1 : 2, [sx, sy] = bldSrc(e.kind, e.idx);
+  const c = e.canvas && e.cres === R ? e.canvas : document.createElement('canvas');
+  c.width = F.w * R; c.height = F.h * R;
+  const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.setTransform(1, 0, 0, 1, 0, 0);
+  g.drawImage(src, sx * mul, sy * mul, F.w * mul, F.h * mul, 0, 0, F.w * R, F.h * R);
+  g.scale(R, R);
+  const blob = (x, y, r, seed, sq) => { g.beginPath(); for (let k = 0; k < 9; k++) { const a = k / 9 * Math.PI * 2, rr = r * (0.6 + 0.4 * Math.abs(Math.sin(seed * 7.1 + k * 2.3))); g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr * (sq || 0.8)); } g.closePath(); g.fill(); };
+  g.globalCompositeOperation = 'source-atop';
+  for (const q of e.big) if (q.t === 'scorch') { g.fillStyle = 'rgba(22,18,14,0.45)'; blob(q.x, q.y, q.r, q.seed, 0.7); g.fillStyle = 'rgba(14,12,10,0.4)'; blob(q.x, q.y, q.r * 0.5, q.seed + 1, 0.7); }
+  for (const q of e.big) if (q.t === 'chunk') {                  // knocked out: the inside showing, broken edges
+    g.fillStyle = '#9a9284'; blob(q.x + 1, q.y + 1, q.r * 1.05, q.seed);
+    g.fillStyle = '#2a2622'; blob(q.x, q.y, q.r, q.seed);
+    g.fillStyle = '#0e0c0b'; blob(q.x + 1, q.y + 1, q.r * 0.55, q.seed + 2);
+    g.strokeStyle = 'rgba(110,74,52,0.8)'; g.lineWidth = 1; g.beginPath(); g.moveTo(q.x - q.r * 0.7, q.y - q.r * 0.2); g.lineTo(q.x - q.r * 0.1, q.y - q.r * 0.05); g.lineTo(q.x + q.r * 0.2, q.y + q.r * 0.3); g.moveTo(q.x - q.r * 0.6, q.y + q.r * 0.25); g.lineTo(q.x - q.r * 0.05, q.y + q.r * 0.35); g.stroke();   // bent rebar sticking out
+  }
+  for (const [x, y, sd] of e.holes) { g.fillStyle = '#1a1614'; g.fillRect(x, y, sd % 3 < 1 ? 2 : 1, 2); g.fillStyle = 'rgba(200,190,170,0.6)'; g.fillRect(x + 1, y + 2, 1, 1); }
+  g.globalCompositeOperation = 'destination-out';
+  g.fillStyle = '#000';
+  for (const q of e.big) if (q.t === 'bite') blob(q.x, q.y, q.r, q.seed, 1);
+  g.globalCompositeOperation = 'source-over';
+  e.canvas = c; e.cver = e.ver; e.cres = R;
+  return c;
+}
+// Drawing: the damaged copy if this building has one (null otherwise). Smoke and fire from a badly hit one.
+function bldDamaged(i, idx, dt, ax, ay) {
+  const e = bdmg.get(i);
+  if (!e) return null;
+  if (e.idx !== idx) { bdmg.delete(i); return null; }
+  if (e.stage >= 1 && CONFIG.smoke) {
+    const m = bldMask(e.kind, e.idx), F = bldFrame(e.kind);
+    if (m && m.top.length && Math.random() < dt * (e.stage >= 2 ? 7 : 2)) {
+      const t = m.top[Math.floor(Math.random() * m.top.length)], wx = ax + t[0] - F.ax, z = F.ay - t[1] - 4;
+      puff('smoke', wx, ay + 1, z, { vx: rand(4, 14), vz: rand(18, 30), r: rand(4, 7), life: rand(2, 3.4), grow: 10, sh: e.stage >= 2 ? 16 : 50 });
+      if (e.stage >= 2 && e.vd / e.max > 0.85 && Math.random() < 0.6) puff('fire', wx + rand(-3, 3), ay + 1, z + 2, { r: rand(3, 5), life: rand(0.4, 0.8), vz: rand(14, 28) });
+    }
+  }
+  return bldCanvas(e);
 }
 
 // ---------------------------------------------------------------------------
@@ -8648,7 +8779,7 @@ function draw(dt) {
     for (let j = -n; j < n; j++) {
       const row = sA - Math.min(Math.abs(j), Math.abs(j + 1));
       let r = xlRows.get(row); if (!r) xlRows.set(row, r = []);
-      r.push({ lg, j, cx, cy: cy - (n - 1) * hh });
+      r.push({ lg, j, cx, cy: cy - (n - 1) * hh, a });
     }
   }
   const xlImg = IMG.props_xl;
@@ -8668,18 +8799,20 @@ function draw(dt) {
           const lean = Math.round(Math.sin(time * (sway === 46 ? 7 : 1.5) + x * 0.7 + y * 1.3) * (sway === 46 ? 1 : 1.2));
           ctx.drawImage(small, sx0, sy0, SMALL.w, sway, dx + lean, dy, SMALL.w, sway);
           ctx.drawImage(small, sx0, sy0 + sway, SMALL.w, SMALL.h - sway, dx, dy + sway, SMALL.w, SMALL.h - sway);
-        } else ctx.drawImage(small, sx0, sy0, SMALL.w, SMALL.h, dx, dy, SMALL.w, SMALL.h);
+        } else { const bc = bdmg.size ? bldDamaged(i, sp, dt, cx + ox, cy + oy + world.lift[i]) : null; if (bc) ctx.drawImage(bc, 0, 0, bc.width, bc.height, dx, dy, SMALL.w, SMALL.h); else ctx.drawImage(small, sx0, sy0, SMALL.w, SMALL.h, dx, dy, SMALL.w, SMALL.h); }
         if (CONFIG.smoke && (sp === WRECK_A || sp === WRECK_B) && Math.random() < dt * 5) {
           puff('smoke', cx + ox + (sp === WRECK_A ? 0 : 6) + Math.random() * 6 - 3, cy + oy, 10, { vx: 10, vz: 26, r: 3 + Math.random() * 2, life: 2.6 + Math.random() * 1.6 });
         }
       }
       const lg = world.large[i];
-      if (lg >= 0 && lg < 100) ctx.drawImage(large, (lg % LARGE.cols) * LARGE.w, ((lg / LARGE.cols) | 0) * LARGE.h, LARGE.w, LARGE.h, cx - LARGE.ax, cy - LARGE.ay, LARGE.w, LARGE.h);
+      if (lg >= 0 && lg < 100) { const bc = bdmg.size ? bldDamaged(i, lg, dt, cx + ox, cy + oy + world.lift[i]) : null; if (bc) ctx.drawImage(bc, 0, 0, bc.width, bc.height, cx - LARGE.ax, cy - LARGE.ay, LARGE.w, LARGE.h); else ctx.drawImage(large, (lg % LARGE.cols) * LARGE.w, ((lg / LARGE.cols) | 0) * LARGE.h, LARGE.w, LARGE.h, cx - LARGE.ax, cy - LARGE.ay, LARGE.w, LARGE.h); }
     }
     const xr = xlRows.get(s);
     if (xr) for (const q of xr) {
       const k = q.lg - 100, top = xlTop(k), sx = (k % XLS.cols) * XLS.w + XLS.ax + q.j * hw, sy = ((k / XLS.cols) | 0) * XLS.h + top;
-      ctx.drawImage(xlImg, sx, sy, hw, XLS.h - top, q.cx + q.j * hw, q.cy - XLS.ay + top, hw, XLS.h - top);
+      const bc = bdmg.size && q.a !== undefined ? bldDamaged(q.a, q.lg, q.j === 0 ? dt : 0, q.cx + ox, q.cy + oy) : null, R2 = bc ? bc.width / XLS.w : 1;
+      if (bc) ctx.drawImage(bc, (XLS.ax + q.j * hw) * R2, top * R2, hw * R2, (XLS.h - top) * R2, q.cx + q.j * hw, q.cy - XLS.ay + top, hw, XLS.h - top);
+      else ctx.drawImage(xlImg, sx, sy, hw, XLS.h - top, q.cx + q.j * hw, q.cy - XLS.ay + top, hw, XLS.h - top);
     }
     const row = dyn.get(s);                  // vehicles, troops, supplies standing on this row
     if (row) drawDynamicRow(row, ox, oy);
