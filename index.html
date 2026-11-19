@@ -2072,16 +2072,25 @@ function fire(pi, slot) {
   const x0 = heli.x + c * reach - s * side, y0 = heli.y + (s * reach + c * side) * 0.5, z0 = kind.air ? Math.max(6, alt - 6) : kind.z + (pl.gar >= 0 ? 14 : 0);
   let x1 = heli.x + c * w.range, y1 = heli.y + s * w.range * 0.5, z1 = 0, target = null;
   // a military lock wins if this weapon can reach it; otherwise hit whatever is in the line of fire
+  const bl = 1 + 2.5 * (pl.bloom || 0);                     // sustained fire walks the rounds about (muzzle climb)
+  if (!w.boom && !w.flame) pl.bloom = Math.min(1, (pl.bloom || 0) + (pl.kind === 'foot' ? 0.13 : 0.06));
   if (aim) {
     x1 = aim.x; y1 = aim.y; z1 = aim.z; target = aim.civil ? null : aim.ref;
-    if (!w.boom && !w.precise) { x1 += rand(-9, 9); y1 += rand(-5, 5); }
-  } else if (!w.boom && !w.precise) { x1 += rand(-14, 14); y1 += rand(-7, 7); }
+    if (!w.boom && !w.precise) { x1 += rand(-9, 9) * bl; y1 += rand(-5, 5) * bl; }
+  } else if (!w.boom && !w.precise) { x1 += rand(-14, 14) * bl; y1 += rand(-7, 7) * bl; }
+  {                                                         // recoil: the vehicle kicks back; a cannon rocks a tank, rockets nudge a helicopter
+    const v = pl.vid >= 0 ? vehicles[pl.vid] : null, big = kind.weapons[slot] === 5 || kind.weapons[slot] === 14;
+    if (v) { v.recoilT = time; v.recoilK = big ? 1 : w.boom ? 0.45 : 0.15; }
+    if (big && !kind.air) { heli.vx -= c * 34; heli.vy -= s * 17; }
+    else if (w.boom && kind.air) { heli.vx -= c * 8; heli.vy -= s * 4; }
+  }
   if (w.flame) { const k = Math.min(1, w.range / Math.max(1, gdist(heli.x, heli.y, x1, y1))); x1 = heli.x + (x1 - heli.x) * k + rand(-10, 10); y1 = heli.y + (y1 - heli.y) * k + rand(-5, 5); z1 = 3; }
   addShot({ enemy: false, slot: kind.weapons[slot], pi, x0, y0, z0, x1, y1, z1, t: 0, T: Math.max(0.05, gdist(x0, y0, x1, y1) / w.speed), target: w.homing ? target : null, x: x0, y: y0, z: z0 });
 }
 // Shots are created by the authority and mirrored to the other device, which animates them
 // (flash, trail, impact) without applying any damage.
 function addShot(s) {
+  shotSetup(s);
   shots.push(s);
   if (typeof soundShot === 'function') soundShot(s);
   const c = Math.cos(Math.atan2((s.y1 - s.y0) * 2, s.x1 - s.x0)), sn = Math.sin(Math.atan2((s.y1 - s.y0) * 2, s.x1 - s.x0));
@@ -2102,7 +2111,9 @@ function enemyFire(e, pi) {
   const def0 = ENEMY[e.type], heli = helis[pi], rk = def0.rockets && time > (e.rnext || 0), def = rk ? ENEMY.bikerkt : def0;
   if (rk) e.rnext = time + def0.rockets * rand(0.8, 1.2);
   const lead = 0.28;
-  const sw = (e.supp || 0) * 36, x1 = heli.x + heli.vx * lead + rand(-sw, sw), y1 = heli.y + heli.vy * 0.5 * lead + rand(-sw, sw) * 0.5;   // pinned down: wild shots
+  e.bloom = Math.max(0, (e.bloom || 0) - (time - (e.bloomT || time)) * 0.5) + 0.1; e.bloomT = time;    // a long burst walks off target
+  const sw = (e.supp || 0) * 36 + Math.min(1, e.bloom) * 14, x1 = heli.x + heli.vx * lead + rand(-sw, sw), y1 = heli.y + heli.vy * 0.5 * lead + rand(-sw, sw) * 0.5;   // pinned down: wild shots
+  if (isGroundVeh(e.type)) { e.recoilT = time; e.recoilK = LOOK(e.type) === 'tank' || LOOK(e.type) === 'arty' ? 1 : 0.2; }
   const a = aimOf(e), c = Math.cos(a), s = Math.sin(a), reach = isFoot(e.type) ? 6 : 24;
   const x0 = e.x + c * reach, y0 = e.y + s * reach * 0.5;
   if (def.minRange && gdist(e.x, e.y, heli.x, heli.y) < def.minRange) return;            // artillery can't hit what's on top of it
@@ -2120,11 +2131,25 @@ function updateShots(dt) {
     const k = Math.min(1, s.t / s.T);
     s.x = s.x0 + (s.x1 - s.x0) * k; s.y = s.y0 + (s.y1 - s.y0) * k;
     const wd = s.enemy ? null : WEAPONS[s.slot];
-    s.z = s.z0 + (s.z1 - s.z0) * k + (s.enemy && LOOK(s.kind) === 'tank' ? Math.sin(k * Math.PI) * 10 : 0) + ((wd && wd.lob) || (s.enemy && (s.kind === 'gren' || s.kind === 'spitter')) ? Math.sin(k * Math.PI) * ((wd && wd.arc) || 34) : 0) + (s.enemy && LOOK(s.kind) === 'arty' ? Math.sin(k * Math.PI) * 150 : 0);
+    if (s.target) s.l1 = liftAt(s.x1, s.y1);
+    // a real trajectory: a straight line in the air (from the muzzle's height to the target's, hills included) plus the
+    // drop / lob of a parabola; what's in the way (buildings, walls, the brow of a hill) stops it there
+    const za = (s.z0 + s.l0) + ((s.z1 + s.l1) - (s.z0 + s.l0)) * k + s.arc * 4 * k * (1 - k);
+    s.z = za - liftAt(s.x, s.y);
+    if (s.rk) { const w8 = Math.sin(k * 19 + s.rk) * 2.5 * (1 - k); s.x += -Math.sin(s.ang) * w8; s.y += Math.cos(s.ang) * w8 * 0.5; }     // rockets weave a little
+    if (k < 1 && !s.noHit && s.travel > 0) {
+      const gone = s.travel * k, left = s.travel - gone;
+      if (gone > (s.z0 > 12 ? 100 : 26) && left > 18) {        // (clear of the shooter's own building or tower)
+        const oh = obstacleH(s.x, s.y);
+        if (s.z < oh || s.z < -3) { s.x1 = s.x; s.y1 = s.y; s.z1 = Math.max(0, s.z); s.l1 = liftAt(s.x, s.y); s.t = s.T; s.blocked = true; s.target = null; }
+      }
+    }
     if (s.enemy && LOOK(s.kind) === 'rocket' && Math.random() < dt * 50) puff('smoke', s.x, s.y, s.z, { vx: rand(-5, 5), vy: rand(-3, 3), vz: rand(0, 8), r: 2, life: rand(0.35, 0.7), grow: 8 });
     if (wd && wd.boom && !wd.lob && s.slot !== 5 && Math.random() < dt * 60) puff('smoke', s.x, s.y, s.z, { vx: rand(-5, 5), vy: rand(-3, 3), vz: rand(0, 8), r: s.slot === 2 ? 3 : 2, life: rand(0.35, 0.7), grow: 8 });
-    if (k < 1) continue;
+    if (k < 1 && !s.blocked) continue;
+    if (s.bul && !s.ext && !s.blocked && shotMissed(s)) { extendShot(s); continue; }      // a miss flies on and lands behind
     shots[i] = shots[shots.length - 1]; shots.pop();
+    if (s.ext || (s.blocked && s.bul)) { strayLands(s); continue; }
     if (!s.enemy) {
       const w = WEAPONS[s.slot];
       if (w.flame) {
@@ -2177,14 +2202,14 @@ function drawShots(ox, oy) {
     else if (s.kind === 'gren') { ctx.fillStyle = '#201c18'; ctx.fillRect(Math.round(sx) - 1, Math.round(sy) - 1, 3, 3); }
     else if (s.kind === 'spitter') { ctx.fillStyle = '#a8d040'; ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = 'rgba(168,208,64,0.4)'; ctx.beginPath(); ctx.arc(sx - ux * 4, sy - uy * 4, 2, 0, Math.PI * 2); ctx.fill(); }
     else if (lk === 'rocket') { ctx.strokeStyle = '#d8d8d0'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx - ux * 7, sy - uy * 7); ctx.stroke(); ctx.fillStyle = '#ffb040'; ctx.fillRect(Math.round(sx - ux * 9) - 1, Math.round(sy - uy * 9) - 1, 3, 3); }
-    else if (wd && !wd.boom) { ctx.strokeStyle = '#ffe9a0'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx - ux * 16, sy - uy * 16); ctx.stroke(); }
+    else if (wd && !wd.boom) { ctx.strokeStyle = s.tr ? '#fff2b8' : 'rgba(255,220,140,0.55)'; ctx.lineWidth = s.tr ? 2 : 1; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx - ux * (s.tr ? 22 : 9), sy - uy * (s.tr ? 22 : 9)); ctx.stroke(); }     // every 4th round a bright tracer
     else if (wd && (wd.lob || s.slot === 5)) { ctx.fillStyle = '#201c18'; ctx.fillRect(Math.round(sx) - 1, Math.round(sy) - 1, 3, 3); }
     else if (!s.enemy) {
       ctx.strokeStyle = s.slot === 2 ? '#f4f4ee' : '#d8d8d0'; ctx.lineWidth = s.slot === 2 ? 3 : 2;
       ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx - ux * (s.slot === 2 ? 10 : 7), sy - uy * (s.slot === 2 ? 10 : 7)); ctx.stroke();
       ctx.fillStyle = '#ffb040'; ctx.fillRect(Math.round(sx - ux * 11) - 1, Math.round(sy - uy * 11) - 1, 3, 3);
     } else if (lk === 'tank' || lk === 'arty') { ctx.fillStyle = '#201c18'; ctx.fillRect(Math.round(sx) - 1, Math.round(sy) - 1, 3, 3); ctx.fillStyle = '#ffb040'; ctx.fillRect(Math.round(sx - ux * 4), Math.round(sy - uy * 4), 2, 2); }
-    else { ctx.strokeStyle = s.kind === 'aa' ? '#ff9a50' : '#ffd070'; ctx.lineWidth = s.kind === 'aa' ? 2 : 1; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx - ux * (s.kind === 'aa' ? 12 : 8), sy - uy * (s.kind === 'aa' ? 12 : 8)); ctx.stroke(); }
+    else { ctx.strokeStyle = s.kind === 'aa' ? '#ff9a50' : s.tr ? '#ff8a60' : 'rgba(255,208,112,0.6)'; ctx.lineWidth = s.kind === 'aa' || s.tr ? 2 : 1; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx - ux * (s.kind === 'aa' ? 12 : 8), sy - uy * (s.kind === 'aa' ? 12 : 8)); ctx.stroke(); }
   }
 }
 
@@ -2286,6 +2311,7 @@ function updatePlayer(pi, dt) {
     if (pl.fuel <= 0) { pl.fuel = 0; die(pi, 'OUT OF FUEL'); return; }
   }
   pl.lock = findLock(heli);
+  if (pl.bloom) pl.bloom = Math.max(0, pl.bloom - 0.45 * dt);
   if (VEH[pl.kind] && VEH[pl.kind].carry) updateTransport(pi, dt);
   pl.inLine = lineOfFire(heli);                 // first thing standing in front of the nose, military or not
   earnCredits(pi);
@@ -2705,7 +2731,7 @@ function drawDynamicRow(list, ox, oy0) {
         ctx.beginPath(); ctx.ellipse(x, y, r + k * 3, (r + k * 3) / 2, 0, 0, Math.PI * 2); ctx.stroke();
         if (e.side === seatOf(me)) text('NEW', x - 6, y - (isGroundVeh(e.type) ? 58 : 44) - Math.round(k * 2), 'cyan');
       }
-      if (isGroundVeh(e.type)) { drawArmour(e.type, e.side >= 0 ? '_f' : '', e.alive ? '' : '_dead', x, y, e.h, e.th, true); if (e.alive) drawScorch(e, x, y, e.h); }
+      if (isGroundVeh(e.type)) { const rk = recoilOff(e), ra = isTank(e.type) ? e.th : e.h; drawArmour(e.type, e.side >= 0 ? '_f' : '', e.alive ? '' : '_dead', x - Math.cos(ra) * rk, y - Math.sin(ra) * rk * 0.5, e.h, e.th, true); if (e.alive) drawScorch(e, x, y, e.h); }
       else if (e.type === 'aa') ctx.drawImage(e.alive ? IMG.aa : IMG.aa_dead, frame16(e.h) * 64, 0, 64, 72, x - 32, y - 50, 64, 72);
       else if (isZed(e.type)) drawZombie(e, x, y);
       else if (!e.alive) fallen(soldierSheet(e), x, y, e.h, e.fallT, e.death ? e.death[3] : e.x * 7 + e.y * 13, e.death);
@@ -2731,7 +2757,7 @@ function drawDynamicRow(list, ox, oy0) {
       fallen(IMG.soldier_f, Math.round(c.x - ox), Math.round(c.y - oy), c.h, c.t, c.x * 7 + c.y * 13, c.d);
     } else if (it.k === 'veh') {
       const v = it.v, x = Math.round(v.x - ox), y = Math.round(v.y - oy), d = v.alive ? '' : '_dead', sk = v.skin === 'f' ? '_f' : '';
-      if (isGroundVeh(v.kind)) { drawArmour(v.kind, sk, d, x, y, v.h, v.th, v.by >= 0); if (v.alive) drawScorch(v, x, y, v.h); }
+      if (isGroundVeh(v.kind)) { const rk = recoilOff(v); drawArmour(v.kind, sk, d, x - Math.cos(v.h) * rk, y - Math.sin(v.h) * rk * 0.5, v.h, v.th, v.by >= 0); if (v.alive) drawScorch(v, x, y, v.h); }
       else drawHeliVehicle(v, ox, oy);
       if (v.alive && v.by < 0 && players[me].kind === 'foot' && gdist(heli.x, heli.y, v.x, v.y) < 220) {   // marker over vehicles you could board
         const bob = Math.round(Math.sin(time * 4 + v.id) * 2), top = VEH[v.kind].air ? 58 : 52;
@@ -3060,6 +3086,78 @@ function drawScorch(ent, x, y, h) {
   const k = f < 0.25 ? 0.42 : 0.26, c = Math.cos(h), s = Math.sin(h);
   ctx.fillStyle = 'rgba(16,12,10,' + k + ')';
   for (const [a, b, r] of [[-7, 2, 5], [4, -3, 4], [-2, 4, 3]]) { ctx.beginPath(); ctx.ellipse(x + c * a - s * b, y - 10 + (s * a + c * b) * 0.5, r, r * 0.6, 0, 0, Math.PI * 2); ctx.fill(); }
+}
+
+// --- ballistics -----------------------------------------------------------------------------------------------------------
+// Every shot flies a real path (shotSetup): a straight line from the muzzle's height to the target's, with the ground's height
+// at both ends (hills), plus a parabola: shells drop a little over distance, grenades / launcher rounds lob, howitzer shells
+// go high. Rockets weave slightly. Anything solid in the way stops it there (obstacleH: buildings, big lots, houses,
+// towers, walls, fences; trees don't): a flat tank shell hits the wall in front of the target, a grenade sails over it.
+// Bullets that miss fly on and land behind (extendShot / strayLands), doing a little damage where they come down.
+// Sustained fire spreads (bloom, see fire() / unitFire()), every 4th round is a bright tracer, and big guns kick (recoil).
+let tracerN = 0;
+function shotSetup(s) {
+  const wd = s.enemy ? null : WEAPONS[s.slot], lk = s.enemy ? LOOK(s.kind) : null, dist = gdist(s.x0, s.y0, s.x1, s.y1);
+  s.l0 = liftAt(s.x0, s.y0); s.l1 = liftAt(s.x1, s.y1); s.travel = dist; s.spd = dist / Math.max(0.01, s.T);
+  s.ang = Math.atan2((s.y1 - s.y0) * 2, s.x1 - s.x0);
+  const lob = (wd && wd.lob) || (s.enemy && (s.kind === 'gren' || s.kind === 'spitter'));
+  s.arc = (wd && wd.arc) || (s.enemy && lk === 'arty' ? 150 : 0) || (lob ? Math.max(20, Math.min(110, dist * 0.3)) : 0)
+    || ((wd && s.slot === 5) || lk === 'tank' ? 3 + dist * 0.012 : 0);
+  s.bul = wd ? !wd.boom && !wd.flame : !s.acid && !s.blast && !s.siege && (lk === 'mg' || (isFoot(s.kind) && !['gren', 'rocket', 'flame', 'spitter'].includes(s.kind)));
+  s.noHit = (wd && wd.flame) || lk === 'flame' || s.acid;
+  if ((wd && wd.boom && !wd.lob && s.slot !== 5) || lk === 'rocket' || s.kind === 'bikerkt') s.rk = Math.random() * 6;
+  if (s.bul) s.tr = tracerN++ % 4 === 0;
+}
+// How tall the solid thing in this spot is (screen px above its ground), 0 if nothing a shot can't pass.
+function obstacleH(x, y) {
+  const cx = Math.round(mapX(x, y)), cy = Math.round(mapY(x, y));
+  if (cx < 1 || cy < 1 || cx >= SIZE - 1 || cy >= SIZE - 1) return 0;
+  const i = cy * SIZE + cx, xa = world.xlOf ? world.xlOf[i] : -1;
+  if (xa >= 0 && world.large[xa] >= 0) return isRuin(world.large[xa]) ? 14 : 70;
+  for (const [ax, ay] of [[cx, cy], [cx + 1, cy], [cx, cy + 1], [cx + 1, cy + 1]]) { const lg = world.large[ay * SIZE + ax]; if (lg >= 0 && lg < 100) return lg === L.RUIN ? 12 : 44; }
+  const sp = world.small[i];
+  if (sp < 0) return 0;
+  if (sp === P.TOWER) return 40;
+  if (typeof GARRISON_HOUSES !== 'undefined' && GARRISON_HOUSES.has(sp)) return 26;
+  if (isFence(sp) || isGate(sp)) return 9;
+  if (sp === P.SANDBAGS || sp === P.SANDBAGS + 1) return 6;
+  return 0;
+}
+// Did this bullet hit nothing where it was aimed?
+function shotMissed(s) {
+  if (!s.enemy) {
+    const w = WEAPONS[s.slot];
+    if (obstacleH(s.x1, s.y1) > 0) return false;
+    for (const e of enemies) if (e.alive && !(e.side >= 0) && Math.abs(e.x - s.x1) < 70 && gdist(e.x, e.y, s.x1, s.y1) < w.blast + ENEMY[e.type].radius) return false;
+    for (const t of world.targets) if (t.alive) { const p = targetPos(t); if (Math.abs(p.x - s.x1) < 60 && gdist(p.x, p.y, s.x1, s.y1) < (t.large ? 50 : 24)) return false; }
+    return true;
+  }
+  if (s.ally) { const f = s.foe; return !f || !f.type || !f.alive || gdist(f.x, f.y, s.x1, s.y1) >= 26; }
+  if (s.foe) return !s.foe.alive || gdist(s.foe.x, s.foe.y, s.x1, s.y1) >= 22;
+  if (s.pi >= 0 && players[s.pi]) { const th = helis[s.pi]; return players[s.pi].dead || gdist(th.x, th.y, s.x1, s.y1) >= s.hit; }
+  return false;
+}
+function extendShot(s) {
+  const L = Math.hypot(s.x1 - s.x0, (s.y1 - s.y0) * 2) || 1, ext = rand(60, 170), ux = (s.x1 - s.x0) / L, uy = (s.y1 - s.y0) / L;
+  if (s.enemy && !s.ally && !s.foe && s.pi >= 0 && veh(s.pi).air) puff('spark', s.x1, s.y1, s.z1, { vx: rand(-40, 40), vz: rand(10, 60), life: 0.2 });   // whipping past
+  s.x0 = s.x1; s.y0 = s.y1; s.z0 = s.z1; s.l0 = s.l1;
+  s.x1 += ux * ext; s.y1 += uy * ext; s.z1 = 0; s.l1 = liftAt(s.x1, s.y1);
+  s.arc = 0; s.t = 0; s.T = ext / Math.max(200, s.spd); s.travel = ext; s.ext = true; s.target = null;
+}
+// A stray (or one that hit a wall) comes down: a puff, and a little damage there.
+function strayLands(s) {
+  puff('dust', s.x1, s.y1, Math.max(1, s.z1), { r: 2, life: 0.45, c: s.z1 > 3 ? '#7a7066' : '#b8a888', a: 0.5 });
+  puff('spark', s.x1, s.y1, s.z1 + 1, { vx: rand(-40, 40), vy: rand(-20, 20), vz: rand(30, 90), life: 0.25 });
+  if (!authority()) return;
+  if (!s.enemy) { const w = WEAPONS[s.slot]; damageAt(s.x1, s.y1, Math.max(8, w.blast * 0.6), w.dmg * 0.6 * (1 + 0.1 * upg(s.pi, 'fire')), s.pi); }
+  else if (s.ally) damageAt(s.x1, s.y1, 8, (s.dmg || 3) * 0.5, s.pi >= 0 ? s.pi : -1);
+  else { damageAt(s.x1, s.y1, 8, (s.dmg || 3) * 0.5, -1, true); for (let pi = 0; pi < 2; pi++) if (players[pi].active && !players[pi].dead && !veh(pi).air && gdist(helis[pi].x, helis[pi].y, s.x1, s.y1) < 16) hurt(pi, (s.dmg || 3) * 0.5, s.kind, s.x0, s.y0); }
+}
+// Recoil: the vehicle (or soldier) kicks back from the shot for a moment.
+function recoilOff(ent) {
+  if (!ent || !ent.recoilT) return 0;
+  const k = 1 - (time - ent.recoilT) / 0.24;
+  return k > 0 ? k * k * (ent.recoilK || 1) * 4 : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -4990,6 +5088,7 @@ function armyFireAtZombie(e, z) {
   const def = ENEMY[e.type], a = isTank(e.type) ? e.th : e.h, reach = isFoot(e.type) ? 6 : 24;
   const x0 = e.x + Math.cos(a) * reach, y0 = e.y + Math.sin(a) * reach * 0.5;
   if (def.minRange && gdist(e.x, e.y, z.x, z.y) < def.minRange) return;
+  if (isGroundVeh(e.type)) { e.recoilT = time; e.recoilK = LOOK(e.type) === 'tank' ? 1 : 0.2; }
   addShot({ enemy: true, kind: e.type, pi: -1, foe: z, x0, y0, z0: def.z + (e.post ? POST_LIFT : 0), x1: z.x, y1: z.y, z1: 6, t: 0, T: Math.max(0.08, gdist(x0, y0, z.x, z.y) / def.shot), dmg: def.dmg * (def.vsGround || 1), hit: 0, x: x0, y: y0, z: def.z });
 }
 // Overrun bases become nests; a forward base the zombies tear down is lost. (Called once a second.)
@@ -5560,7 +5659,10 @@ function unitFire(e, def0, tg) {
   if (def.minRange && gdist(e.x, e.y, tg.x, tg.y) < def.minRange) return;        // artillery: too close to shell
   const a = aimOf(e), reach = isFoot(e.type) ? 6 : 24;
   const x0 = e.x + Math.cos(a) * reach, y0 = e.y + Math.sin(a) * reach * 0.5, z0 = def.z + (e.gar >= 0 ? 12 : 0) + (e.post ? POST_LIFT : 0);
-  const aimX = tg.x + (isFoot(e.type) && !BLAST[e.type] && e.type !== 'sniper' ? rand(-6, 6) : 0), aimY = tg.y, lk = LOOK(type);
+  e.bloom = Math.max(0, (e.bloom || 0) - (time - (e.bloomT || time)) * 0.5) + 0.1; e.bloomT = time;
+  const spr = (isFoot(e.type) && !BLAST[e.type] && e.type !== 'sniper') || LOOK(type) === 'mg' ? 6 + Math.min(1, e.bloom) * 12 : 0;
+  const aimX = tg.x + rand(-spr, spr), aimY = tg.y + rand(-spr, spr) * 0.5, lk = LOOK(type);
+  if (isGroundVeh(e.type)) { e.recoilT = time; e.recoilK = lk === 'tank' || lk === 'arty' ? 1 : 0.2; }
   const b = BLAST[type] || BLAST[lk], dmg = (1 + 0.1 * upg(playerAt(e.side), 'fire')) * (type === 'inf' ? 4 : type === 'sniper' ? 40 : type === 'flame' ? 8 : type === 'ftank' ? 14 : lk === 'mg' ? 5 : def.dmg) * (b ? b[1] : 1);
   addShot({ enemy: true, ally: true, kind: type, pi: playerAt(e.side) >= 0 ? playerAt(e.side) : -2, foe: b ? null : tg.ref, blast: b ? b[0] : 0, x0, y0, z0, x1: aimX, y1: aimY, z1: tg.target ? 10 : 6, t: 0, T: Math.max(0.08, gdist(x0, y0, aimX, aimY) / def.shot), dmg, hit: 0, x: x0, y: y0, z: z0 });
 }
