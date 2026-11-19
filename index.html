@@ -1680,6 +1680,7 @@ function exitVehicle(pi) {                               // leave the vehicle wh
       const e = makeEnemy(v.kind, v.x, v.y, -5);
       e.side = v.unit.side; e.order = players[pi].order || v.unit.order || 'FOLLOW'; e.h = v.h; e.th = v.th; e.slot = myUnits(pi).length;
       e.hp = Math.max(1, Math.round(unitMaxHp(v.kind) * Math.max(0, v.armor) / VEH[v.kind].armor));
+      e.dm = v.dm;
       if (e.order === 'HOLD') e.hold = { x: e.x, y: e.y };
       enemies.push(e);
       if (role === 'host') netSend({ t: 'enew', a: packExtra(e) });
@@ -1695,7 +1696,7 @@ function boardVehicle(pi) {
     if (v && v.type) {                                  // one of your units: it turns into a vehicle you drive
       const e = v;
       v = addVehicle(e.type, 'f', e.x, e.y, e.h);
-      v.th = e.th; v.armor = Math.round(VEH[e.type].armor * Math.max(0.1, Math.min(1, e.hp / unitMaxHp(e.type)))); v.unit = { side: e.side, order: e.order };
+      v.th = e.th; v.armor = Math.round(VEH[e.type].armor * Math.max(0.1, Math.min(1, e.hp / unitMaxHp(e.type)))); v.unit = { side: e.side, order: e.order }; v.dm = e.dm;
       if (role === 'host') netSend({ t: 'vnew', v: packVehicle(v) });
       e.alive = false; e.gone = true;
       if (role === 'host') netSend({ t: 'egone', k: enemies.indexOf(e) });
@@ -1763,7 +1764,8 @@ function updateParticles(dt) {
     p.age += dt;
     if (p.age >= p.life) { parts[i] = parts[parts.length - 1]; parts.pop(); continue; }
     p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
-    if (p.t === 'spark' || p.t === 'debris' || p.t === 'gore') { p.vz -= 420 * dt; if (p.z < 0) { p.z = 0; p.vz *= -0.3; p.vx *= 0.5; p.vy *= 0.5; } }
+    if (p.t === 'chunk') { p.vz -= 380 * dt; p.spin += p.vs * dt; if (p.z < 0) { p.z = 0; p.vz *= -0.25; p.vx *= 0.4; p.vy *= 0.4; p.vs *= 0.4; } }
+    else if (p.t === 'spark' || p.t === 'debris' || p.t === 'gore') { p.vz -= 420 * dt; if (p.z < 0) { p.z = 0; p.vz *= -0.3; p.vx *= 0.5; p.vy *= 0.5; } }
     else if (p.t === 'smoke') { p.r += (p.grow || 5.5) * dt; p.vx += 4 * dt; p.vz *= 1 - 0.5 * dt; }
     else if (p.t === 'fire') { p.vx *= 1 - 4 * dt; p.vy *= 1 - 4 * dt; }
     else if (p.t === 'dust') { p.r += 16 * dt; p.vx *= 1 - 2.5 * dt; p.vy *= 1 - 2.5 * dt; }
@@ -1783,7 +1785,7 @@ function drawParticles(ox, oy) {
     if (sx < -60 || sy < -60 || sx > W + 60 || sy > H + 60) continue;
     if (p.t === 'smoke') {
       ctx.globalAlpha = 0.5 * (1 - k) * Math.min(1, p.age * 5);
-      const c = Math.round(34 + 70 * k), r = Math.round(p.r);
+      const c = Math.round((p.sh === undefined ? 34 : p.sh) + 70 * k), r = Math.round(p.r);
       ctx.fillStyle = 'rgb(' + c + ',' + (c - 2) + ',' + (c - 6) + ')';
       ctx.fillRect(sx - r, sy - Math.round(r * 0.6), r * 2, Math.round(r * 1.2));
       ctx.fillRect(sx - Math.round(r * 0.6), sy - r, Math.round(r * 1.2), r * 2);
@@ -1800,6 +1802,10 @@ function drawParticles(ox, oy) {
     } else if (p.t === 'spark') {
       ctx.globalAlpha = 1 - k * k; ctx.fillStyle = k < 0.5 ? '#ffe890' : '#e08030';
       ctx.fillRect(sx, sy, 2, 2);
+    } else if (p.t === 'chunk') {                          // a bit of vehicle: tumbling, then lying there
+      ctx.globalAlpha = Math.min(1, 4 * (1 - k)); ctx.fillStyle = p.c;
+      const flat = p.z <= 0.5, a = Math.abs(Math.cos(p.spin)), w = Math.max(1, Math.round(flat ? p.w : p.w * a + p.hh * (1 - a))), hh = Math.max(1, Math.round(flat ? p.hh * 0.6 : p.hh * a + p.w * (1 - a)));
+      ctx.fillRect(sx - (w >> 1), sy - (hh >> 1), w, hh);
     } else if (p.t === 'gore') {                           // blood and bits: fly, drop, lie a moment
       ctx.globalAlpha = Math.min(1, 3 * (1 - k)); ctx.fillStyle = p.c;
       const r = Math.max(1, Math.round(p.r)); ctx.fillRect(sx, sy, r, p.z > 0 ? r : Math.max(1, r >> 1));
@@ -1823,7 +1829,7 @@ function targetPos(t) { return { x: cellX(t.x, t.y), y: cellY(t.x, t.y) }; }
 function damageAt(x, y, blast, dmg, pi, byEnemy) {
   if (typeof suppress === 'function') suppress(x, y, blast, dmg >= 25 ? 0.5 : 0.15);
   if (typeof damageCivs === 'function') damageCivs(x, y, blast, dmg, pi, byEnemy);
-  if (!byEnemy) for (const e of enemies) if (e.alive && !(e.side >= 0) && gdist(x, y, e.x, e.y) < blast + ENEMY[e.type].radius) { e.hp -= dmg * garMult(e); if (e.hp <= 0) { hitBy(e, x, y, dmg, blast); killEnemy(e, pi); } }
+  if (!byEnemy) for (const e of enemies) if (e.alive && !(e.side >= 0) && gdist(x, y, e.x, e.y) < blast + ENEMY[e.type].radius) { e.lh = { x: pi >= 0 && helis[pi] ? helis[pi].x : x, y: pi >= 0 && helis[pi] ? helis[pi].y : y, t: time }; e.hp -= dmg * garMult(e); if (e.hp <= 0) { hitBy(e, x, y, dmg, blast); killEnemy(e, pi); } }
   if (!byEnemy && typeof nests !== 'undefined') for (const n of nests) if (n.alive && gdist(x, y, n.x, n.y) < blast + 40) { n.hp -= dmg; if (n.hp <= 0) destroyNest(n, pi); }
   damagePosts(x, y, blast, dmg, pi, byEnemy);
   if (!byEnemy) for (const t of world.targets) {
@@ -1943,9 +1949,10 @@ function destroyTarget(t, pi) {
   const left = world.targets.filter((o) => o.alive && o.base === t.base).length;
   if (left === 0) { if (pi >= 0) { players[pi || 0].score += 2000; say('ENEMY BASE NEUTRALISED', 5); } else say(pi === -1 ? 'ZOMBIES HAVE DESTROYED AN ENEMY BASE' : 'ENEMY BASE NEUTRALISED', 5); } else say(t.name + ' DESTROYED');
 }
-function hurt(pi, dmg, from) {
+function hurt(pi, dmg, from, fx, fy) {
   const pl = players[pi];
   if (pl.dead) return;
+  if (fx !== undefined && pl.vid >= 0 && vehicles[pl.vid]) vehicles[pl.vid].lh = { x: fx, y: fy, t: time };     // where it came from: which part it hit
   const shrug = veh(pi).shrug;
   if (shrug && from) dmg *= shrug[from] === undefined ? 1 : shrug[from];
   dmg /= 1 + 0.15 * upg(pi, 'armor');                                                  // ARMOUR upgrade
@@ -2053,7 +2060,7 @@ function lineOfFire(heli) {
 function fire(pi, slot) {
   const w = weaponOf(pi, slot), pl = players[pi], heli = helis[pi], kind = veh(pi);
   if (!w || pl.cool[slot] > 0 || pl.ammo[slot] < 1) return;
-  pl.ammo[slot]--; pl.cool[slot] = w.rate;
+  pl.ammo[slot]--; pl.cool[slot] = w.rate * (pl.vid >= 0 && vehicles[pl.vid] ? vehMods(vehicles[pl.vid], kind.air).reload : 1);
   const aim = (pl.lock && pl.lock.d <= w.range * 1.05) ? pl.lock : (pl.inLine && pl.inLine.d <= w.range ? pl.inLine : null);
   // tanks and soldiers swing round to shoot at a locked target; helicopters and jeeps fire along the nose
   const dir = (aim && (isTank(pl.kind) || pl.kind === 'foot')) ? gangle(heli.x, heli.y, aim.x, aim.y) : heli.heading;
@@ -2138,7 +2145,7 @@ function updateShots(dt) {
       const lk = LOOK(s.kind);
       if (lk === 'tank' || lk === 'rocket' || lk === 'arty') explosion(s.x1, s.y1, 4, lk === 'arty' ? 36 : 18, true); else if (lk === 'flame') puff('fire', s.x1, s.y1, 4, { r: 6, life: 0.5, vz: 20 }); else puff('dust', s.x1, s.y1, 2, { r: 2, life: 0.4, c: '#8a7a5a', a: 0.4 });
       if (authority() && s.foe.alive && isFoot(s.foe.type)) suppress(s.foe.x, s.foe.y, 8, 0.2);
-      if (authority() && s.foe.alive && gdist(s.foe.x, s.foe.y, s.x1, s.y1) < (lk === 'arty' ? 80 : lk === 'tank' || lk === 'rocket' ? 40 : 22)) { s.foe.hp -= s.dmg * (s.foe.post ? 0.5 : garMult(s.foe)); if (s.foe.hp <= 0) { if (s.foe.post) killPost(s.foe, -1); else { hitBy(s.foe, s.x0, s.y0, lk === 'tank' || lk === 'rocket' || lk === 'arty' ? 120 : 6, lk === 'arty' ? 80 : 40, true); killEnemy(s.foe, -1); } } }
+      if (authority() && s.foe.alive && gdist(s.foe.x, s.foe.y, s.x1, s.y1) < (lk === 'arty' ? 80 : lk === 'tank' || lk === 'rocket' ? 40 : 22)) { s.foe.lh = { x: s.x0, y: s.y0, t: time }; s.foe.hp -= s.dmg * (s.foe.post ? 0.5 : garMult(s.foe)); if (s.foe.hp <= 0) { if (s.foe.post) killPost(s.foe, -1); else { hitBy(s.foe, s.x0, s.y0, lk === 'tank' || lk === 'rocket' || lk === 'arty' ? 120 : 6, lk === 'arty' ? 80 : 40, true); killEnemy(s.foe, -1); } } }
     } else if (s.siege || s.pi < 0) {
       explosion(s.x1, s.y1, 6, 22, true);
       if (s.siege && authority()) damageAt(s.x1, s.y1, s.siege.blast, s.siege.dmg, 0, true);
@@ -2153,7 +2160,7 @@ function updateShots(dt) {
         puff('flash', s.x1, s.y1, s.z1, { r: LOOK(s.kind) === 'tank' ? 12 : 8, life: 0.07 });
         for (let j = 0; j < 4; j++) puff('smoke', s.x1 + rand(-6, 6), s.y1 + rand(-3, 3), s.z1 + rand(-4, 4), { vx: rand(-10, 14), vz: rand(-4, 8), r: rand(3, 6), life: rand(0.7, 1.4), grow: 7 });
       }
-      if (near && authority()) hurt(s.pi, s.dmg, s.kind);
+      if (near && authority()) hurt(s.pi, s.dmg, s.kind, s.x0, s.y0);
     }
   }
 }
@@ -2257,7 +2264,7 @@ function updateEnemies(dt) {
       const wp = e.loop[e.next];
       const want = gangle(e.x, e.y, wp.x, wp.y);
       e.h = rotateToward(e.h, want, (isTank(e.type) ? 1.3 : 5) * dt);
-      const speed = def.speed * (Math.abs(angDiff(e.h, want)) < 0.5 ? 1 : 0.25);
+      const speed = def.speed * (Math.abs(angDiff(e.h, want)) < 0.5 ? 1 : 0.25) * (e.dm ? vehMods(e, !!def.air).spd : 1);
       e.x += Math.cos(e.h) * speed * dt; e.y += Math.sin(e.h) * speed * 0.5 * dt;
       e.phase += dt * 7;
       if (gdist(e.x, e.y, wp.x, wp.y) < 14) e.next = (e.next + 1) % e.loop.length;
@@ -2443,6 +2450,7 @@ function updateCombat(dt) {
   updateShots(dt);
   updateRotorWash(0, dt); updateRotorWash(1, dt);
   updateParticles(dt);
+  updateVehDamage(dt);
   shake = Math.max(0, shake - dt * 22);
 }
 // On the guest the host decides everything; here we only glide things toward the latest
@@ -2697,7 +2705,7 @@ function drawDynamicRow(list, ox, oy0) {
         ctx.beginPath(); ctx.ellipse(x, y, r + k * 3, (r + k * 3) / 2, 0, 0, Math.PI * 2); ctx.stroke();
         if (e.side === seatOf(me)) text('NEW', x - 6, y - (isGroundVeh(e.type) ? 58 : 44) - Math.round(k * 2), 'cyan');
       }
-      if (isGroundVeh(e.type)) drawArmour(e.type, e.side >= 0 ? '_f' : '', e.alive ? '' : '_dead', x, y, e.h, e.th, true);
+      if (isGroundVeh(e.type)) { drawArmour(e.type, e.side >= 0 ? '_f' : '', e.alive ? '' : '_dead', x, y, e.h, e.th, true); if (e.alive) drawScorch(e, x, y, e.h); }
       else if (e.type === 'aa') ctx.drawImage(e.alive ? IMG.aa : IMG.aa_dead, frame16(e.h) * 64, 0, 64, 72, x - 32, y - 50, 64, 72);
       else if (isZed(e.type)) drawZombie(e, x, y);
       else if (!e.alive) fallen(soldierSheet(e), x, y, e.h, e.fallT, e.death ? e.death[3] : e.x * 7 + e.y * 13, e.death);
@@ -2723,7 +2731,7 @@ function drawDynamicRow(list, ox, oy0) {
       fallen(IMG.soldier_f, Math.round(c.x - ox), Math.round(c.y - oy), c.h, c.t, c.x * 7 + c.y * 13, c.d);
     } else if (it.k === 'veh') {
       const v = it.v, x = Math.round(v.x - ox), y = Math.round(v.y - oy), d = v.alive ? '' : '_dead', sk = v.skin === 'f' ? '_f' : '';
-      if (isGroundVeh(v.kind)) drawArmour(v.kind, sk, d, x, y, v.h, v.th, v.by >= 0);
+      if (isGroundVeh(v.kind)) { drawArmour(v.kind, sk, d, x, y, v.h, v.th, v.by >= 0); if (v.alive) drawScorch(v, x, y, v.h); }
       else drawHeliVehicle(v, ox, oy);
       if (v.alive && v.by < 0 && players[me].kind === 'foot' && gdist(heli.x, heli.y, v.x, v.y) < 220) {   // marker over vehicles you could board
         const bob = Math.round(Math.sin(time * 4 + v.id) * 2), top = VEH[v.kind].air ? 58 : 52;
@@ -2949,6 +2957,109 @@ function unloadTroops(pi, withYou) {
   });
   if (list.length) sayTo(pi, list.length + ' SOLDIERS OUT' + (withYou ? '' : ': HOLDING HERE'), 2);
   pl.troops = []; pl.dropAt = { x: h.x, y: h.y }; pl.settle = false;
+}
+
+// --- vehicle damage -------------------------------------------------------------------------------------------------------
+// Every vehicle, both sides (yours, your units', parked ones, the enemy's, helicopters too):
+//  - looks: under 3/4 health it smokes, under 1/2 small fires break out and it's scorched, under 1/4 it's in flames.
+//  - parts: each hit lands on a part, by where it came from: from behind the engine, from the sides the tracks / wheels
+//    (on a helicopter, the tail rotor), from the front the gun; a third of hits anywhere. ent.dm = { mob, eng, gun } 0..1.
+//    Bits fly off where it's hit, and big pieces when a part gets worse.
+//  - effects (never crippling): tracks -30% speed and -25% turning; engine -20% speed (helicopters -25%), slower to pick up;
+//    gun +50% reload; tail rotor -35% turning and the nose wanders. Mending (your pad, an engineer) mends the parts too.
+// The host works it all out from health going down (ent.hpSeen) and the last hit's source (ent.lh); the guest gets 'vdm'.
+function vehMods(ent, air) {
+  const d = ent && ent.dm;
+  if (!d) return { spd: 1, turn: 1, accel: 1, reload: 1, wob: 0 };
+  return air ? { spd: 1 - 0.25 * d.eng, turn: 1 - 0.35 * d.mob, accel: 1 - 0.3 * d.eng, reload: 1 + 0.5 * d.gun, wob: d.mob }
+    : { spd: (1 - 0.3 * d.mob) * (1 - 0.2 * d.eng), turn: 1 - 0.25 * d.mob, accel: 1 - 0.3 * d.eng, reload: 1 + 0.5 * d.gun, wob: 0 };
+}
+const HULL = { enemy: ['#4a2420', '#2a1c1a', '#6a3a30'], ours: ['#4e5a3a', '#2e3424', '#6a7458'] };
+// Bits of the vehicle flying off: n small ones; big = a piece (track links, a wheel, a panel, a rotor blade) as well.
+function vehBits(x, y, z, h, part, n, big, cols, air) {
+  for (let k = 0; k < n; k++) puff('chunk', x + rand(-6, 6), y + rand(-3, 3), z + rand(0, 6), { vx: rand(-70, 70), vy: rand(-35, 35), vz: rand(60, 170), life: rand(3, 6), w: rand(1, 2.6), hh: rand(1, 2), c: cols[k % 3], spin: 0, vs: rand(-12, 12) });
+  for (let k = 0; k < 4; k++) puff('spark', x, y, z + 4, { vx: rand(-60, 60), vy: rand(-30, 30), vz: rand(30, 120), life: 0.3 });
+  if (!big) return;
+  const a = h + (part === 'eng' ? Math.PI : part === 'gun' ? 0 : Math.PI / 2 * (Math.random() < 0.5 ? 1 : -1)) + rand(-0.6, 0.6), sp = rand(70, 130);
+  const piece = air ? (part === 'mob' ? { w: 9, hh: 1.5, c: '#2a2a28' } : { w: 5, hh: 3, c: cols[0] }) : part === 'mob' ? { w: 6, hh: 2, c: '#2a2826' } : part === 'gun' ? { w: 7, hh: 1.5, c: '#3a3836' } : { w: 5, hh: 4, c: cols[0] };
+  for (let k = 0; k < (part === 'mob' && !air ? 3 : 1); k++) puff('chunk', x, y, z + 6, Object.assign({ vx: Math.cos(a) * sp + rand(-20, 20), vy: Math.sin(a) * sp * 0.5 + rand(-10, 10), vz: rand(110, 200), life: rand(8, 12), spin: 0, vs: rand(-9, 9) }, piece));
+  puff('smoke', x, y, z + 6, { vx: rand(-10, 10), vz: rand(20, 40), r: 6, life: 1.4, grow: 9 });
+}
+function vehHit(ent, air, h, x, y, z, frac, side) {
+  const d = ent.dm || (ent.dm = { mob: 0, eng: 0, gun: 0 });
+  let part;
+  const src = ent.lh && time - ent.lh.t < 0.4 ? ent.lh : null;
+  if (!src || Math.random() < 0.33) part = ['mob', 'eng', 'gun'][Math.floor(Math.random() * 3)];
+  else {
+    const rel = Math.abs(angDiff(gangle(src.x, src.y, x, y), h));      // 0: the shot is going the way the vehicle faces, i.e. from behind
+    part = rel < 0.8 ? (air && Math.random() < 0.5 ? 'mob' : 'eng') : rel > 2.3 ? 'gun' : air ? (Math.random() < 0.5 ? 'mob' : 'eng') : 'mob';
+  }
+  const before = d[part]; d[part] = Math.min(1, before + frac * 2.2);
+  const big = Math.floor(d[part] * 3) > Math.floor(before * 3);
+  const L = air ? 30 : 16, off = part === 'eng' ? -L * 0.6 : part === 'gun' ? L * 0.6 : 0, side2 = part === 'mob' && !air ? (Math.random() < 0.5 ? 1 : -1) * 8 : 0;
+  const px = x + Math.cos(h) * off - Math.sin(h) * side2, py = y + (Math.sin(h) * off + Math.cos(h) * side2) * 0.5;
+  vehBits(px, py, z, h, part, frac > 0.05 ? 4 : 2, big, side === 'enemy' ? HULL.enemy : HULL.ours, air);
+}
+// Every vehicle on the battlefield this frame: [entity, health, full health, x, y, heading, height, in the air, whose].
+function vehList() {
+  const out = [];
+  for (let pi = 0; pi < 2; pi++) { const pl = players[pi]; if (pl.active && !pl.dead && pl.vid >= 0 && vehicles[pl.vid] && pl.kind !== 'foot') { const v = vehicles[pl.vid], air = VEH[pl.kind].air; out.push([v, pl.armor, VEH[pl.kind].armor, helis[pi].x, helis[pi].y, helis[pi].heading, air ? v.alt : VEH[pl.kind].z, air, 'ours']); } }
+  const driven = new Set([0, 1].filter((pi) => players[pi].active && players[pi].vid >= 0).map((pi) => vehicles[players[pi].vid]));
+  for (const v of vehicles) if (v && v.alive && !v.gone && v.by < 0 && !driven.has(v) && VEH[v.kind] && VEH[v.kind].armor) out.push([v, v.armor, VEH[v.kind].armor, v.x, v.y, v.h, VEH[v.kind].air ? v.alt || 0 : VEH[v.kind].z, VEH[v.kind].air, 'ours']);
+  for (const e of enemies) if (e.alive && (isGroundVeh(e.type) || e.type === 'gunship' || e.type === 'chinook')) { const air = !!ENEMY[e.type].air; out.push([e, e.hp, e.side >= 0 ? maxHpOf(e) : ENEMY[e.type].hp, e.x, e.y, e.h, air ? (e.type === 'chinook' ? e.th : HELI_Z) : ENEMY[e.type].z, air, e.side >= 0 ? 'ours' : 'enemy']); }
+  return out;
+}
+let vdmClock = 0;
+function updateVehDamage(dt) {
+  const list = vehList(), host = authority();
+  for (const [ent, hp, max, x, y, h, z, air, side] of list) {
+    if (host) {
+      const f = Math.max(0, Math.min(1, hp / max));
+      if (ent.hpSeen !== undefined && hp < ent.hpSeen - 0.01) vehHit(ent, air, h, x, y, z, (ent.hpSeen - hp) / max, side);
+      else if (ent.hpSeen !== undefined && hp > ent.hpSeen + 0.01 && ent.dm) {        // mended: the parts come back with it
+        const g = (hp - ent.hpSeen) / max * 2.4;
+        for (const k of ['mob', 'eng', 'gun']) ent.dm[k] = Math.max(0, ent.dm[k] - g);
+        if (f >= 0.999) ent.dm = null;
+      }
+      ent.hpSeen = hp; ent.vf = f;
+    }
+    vehFx(ent, x, y, h, z, air, dt);
+  }
+  if (role === 'host' && (vdmClock -= dt) <= 0) {                // the guest: how hurt everything near it is
+    vdmClock = 0.5;
+    const g = helis[1], e = [], v = [], q = (d) => (d ? [Math.round(d.mob * 9), Math.round(d.eng * 9), Math.round(d.gun * 9)] : [0, 0, 0]);
+    enemies.forEach((o, k) => { if (o.alive && o.vf !== undefined && o.vf < 0.999 && gdist(o.x, o.y, g.x, g.y) < 1900) e.push(k, Math.round(o.vf * 100), ...q(o.dm)); });
+    for (const o of vehicles) if (o && !o.gone && o.vf !== undefined && o.vf < 0.999) v.push(o.id, Math.round(o.vf * 100), ...q(o.dm));
+    if (e.length || v.length || vdmClock === 0.5) netSend({ t: 'vdm', e, v });
+  }
+}
+function unpackVdm(m) {
+  const set = (o, a, i) => { o.vf = a[i + 1] / 100; o.dm = a[i + 2] + a[i + 3] + a[i + 4] ? { mob: a[i + 2] / 9, eng: a[i + 3] / 9, gun: a[i + 4] / 9 } : null; };
+  for (const o of enemies) if (o.vf !== undefined) o.vf = 1;
+  for (let i = 0; i < m.e.length; i += 5) if (enemies[m.e[i]]) set(enemies[m.e[i]], m.e, i);
+  for (let i = 0; i < m.v.length; i += 5) { const o = vehicles.find((w) => w && w.id === m.v[i]); if (o) set(o, m.v, i); }
+}
+// Smoke, then fire, then flames, from the engine (and wherever else it's been hit hardest).
+function vehFx(ent, x, y, h, z, air, dt) {
+  const f = ent.vf === undefined ? 1 : ent.vf;
+  if (f >= 0.75 && !(ent.dm && ent.dm.eng > 0.5)) return;
+  const near = [0, 1].some((pi) => players[pi].active && Math.abs(helis[pi].x - x) < 900 && Math.abs(helis[pi].y - y) < 600);
+  if (!near) return;
+  const L = air ? 30 : 14, ex = x - Math.cos(h) * L * 0.6, ey = y - Math.sin(h) * L * 0.3, ez = z + (air ? 4 : 2);
+  const sm = f < 0.25 ? 9 : f < 0.5 ? 6 : 3;                        // smoke: grey, then darker, then black
+  if (Math.random() < dt * sm) puff('smoke', ex + rand(-3, 3), ey + rand(-2, 2), ez, { vx: rand(-8, 8) - Math.cos(h) * 10, vy: rand(-4, 4), vz: rand(18, 34), r: f < 0.25 ? 5 : 3.5, life: rand(1.4, 2.6), grow: f < 0.25 ? 11 : 8, sh: f < 0.25 ? 14 : f < 0.5 ? 40 : 80 });
+  if (f < 0.5 && Math.random() < dt * (f < 0.25 ? 18 : 6)) {        // fire, then real flames
+    const big = f < 0.25, sx = big ? ex + rand(-L, L) * 0.5 : ex, sy = big ? ey + rand(-L, L) * 0.25 : ey;
+    puff('fire', sx + rand(-2, 2), sy + rand(-1, 1), ez + rand(0, 3), { r: big ? rand(3.5, 6) : rand(2, 3.5), life: rand(0.3, 0.6), vz: rand(14, 34), vx: rand(-6, 6) });
+  }
+}
+// Scorch and soot on a vehicle under half health.
+function drawScorch(ent, x, y, h) {
+  const f = ent.vf === undefined ? 1 : ent.vf;
+  if (f >= 0.5) return;
+  const k = f < 0.25 ? 0.42 : 0.26, c = Math.cos(h), s = Math.sin(h);
+  ctx.fillStyle = 'rgba(16,12,10,' + k + ')';
+  for (const [a, b, r] of [[-7, 2, 5], [4, -3, 4], [-2, 4, 3]]) { ctx.beginPath(); ctx.ellipse(x + c * a - s * b, y - 10 + (s * a + c * b) * 0.5, r, r * 0.6, 0, 0, Math.PI * 2); ctx.fill(); }
 }
 
 // ---------------------------------------------------------------------------
@@ -3289,6 +3400,7 @@ function netMessage(m) {
     case 'boom': explosion(m.x, m.y, m.z, m.size); break;
     case 'prop': world.small[m.i] = m.s; world.large[m.i] = m.l; break;
     case 'emit': addEmitter({ x: m.e.x, y: m.e.y, kind: m.e.kind, until: time + m.e.left, rate: m.e.rate, w: m.e.w }); break;
+    case 'vdm': if (typeof unpackVdm === 'function') unpackVdm(m); break;
     case 'egone': if (enemies[m.k]) { enemies[m.k].alive = false; enemies[m.k].gone = true; } break;
     case 'vgone': if (vehicles[m.id]) { vehicles[m.id].alive = false; vehicles[m.id].gone = true; vehicles[m.id].by = -1; } break;
     case 'ekill': if (enemies[m.k]) { const e = enemies[m.k]; e.alive = false; e.fallT = time; if (m.d) { e.death = m.d; e.x = m.x; e.y = m.y; if (typeof deathFx === 'function') deathFx(e); } } break;
@@ -4242,7 +4354,7 @@ function moveWave(e, dt) {
     want = best < here ? gangle(e.x, e.y, cellX(bx, by), cellY(bx, by)) : gangle(e.x, e.y, g.x, g.y);
   }
   e.h = rotateToward(e.h, want, (isTank(e.type) ? 1.6 : 5) * dt);
-  const speed = def.speed * (Math.abs(angDiff(e.h, want)) < 0.6 ? 1 : 0.3) * (def.air ? 1 : 1.25);
+  const speed = def.speed * (Math.abs(angDiff(e.h, want)) < 0.6 ? 1 : 0.3) * (def.air ? 1 : 1.25) * (e.dm ? vehMods(e, def.air).spd : 1);
   const nx = e.x + Math.cos(e.h) * speed * dt, ny = e.y + Math.sin(e.h) * speed * 0.5 * dt;
   if (def.air || !posBlocks(moveKind(e.type), nx, ny, 'a')) { e.x = nx; e.y = ny; }
   else if (!breachWall(e, nx, ny, 'a', isTank(e.type) ? 60 : 12, dt)) { e.h += (Math.random() < 0.5 ? 1 : -1) * 0.8; }
@@ -4545,7 +4657,7 @@ function chinookThink(e, def, dt) {
   const fly = (tx, ty) => {
     const want = gangle(e.x, e.y, tx, ty);
     e.h = rotateToward(e.h, want, 1.6 * dt);
-    const sp = def.speed * (Math.abs(angDiff(e.h, want)) < 0.6 ? 1 : 0.4);
+    const sp = def.speed * (Math.abs(angDiff(e.h, want)) < 0.6 ? 1 : 0.4) * (e.dm ? vehMods(e, true).spd : 1);
     e.x += Math.cos(e.h) * sp * dt; e.y += Math.sin(e.h) * sp * 0.5 * dt; e.phase += dt;
   };
   if (e.ph === 0) { if (gdist(e.x, e.y, e.lz.x, e.lz.y) < 16) e.ph = 1; else fly(e.lz.x, e.lz.y); }
@@ -5459,7 +5571,7 @@ function allyHit(s) {
   const f = s.foe;
   if (!f) return;
   if (f.post) { if (f.alive) { f.hp -= s.dmg * 0.5; if (f.hp <= 0) killPost(f, s.pi); } }
-  else if (f.type) { if (f.alive && isFoot(f.type)) suppress(f.x, f.y, 6, 0.2); if (f.alive && gdist(f.x, f.y, s.x1, s.y1) < 26) { f.hp -= s.dmg * garMult(f); if (f.hp <= 0) killEnemy(f, s.pi); } }
+  else if (f.type) { if (f.alive) f.lh = { x: s.x0, y: s.y0, t: time }; if (f.alive && isFoot(f.type)) suppress(f.x, f.y, 6, 0.2); if (f.alive && gdist(f.x, f.y, s.x1, s.y1) < 26) { f.hp -= s.dmg * garMult(f); if (f.hp <= 0) killEnemy(f, s.pi); } }
   else if (f.age !== undefined) { if (f.alive) { f.hp -= s.dmg; if (f.hp <= 0) destroyNest(f, s.pi); } }
   else if (f.base !== undefined && f.alive) { f.hp -= s.dmg; if (f.hp <= 0) destroyTarget(f, s.pi); }
 }
@@ -5613,7 +5725,7 @@ function unitMove(e, def, tx, ty, dt, fast) {
   }
   const want = gangle(e.x, e.y, gx, gy);
   e.h = rotateToward(e.h, want, (isTank(e.type) ? 1.6 : 6) * dt);
-  const sp = def.speed * (fast ? 1.8 : 1.2) * (!isTank(e.type) || Math.abs(angDiff(e.h, want)) < 0.6 ? 1 : 0.3);
+  const sp = def.speed * (fast ? 1.8 : 1.2) * (!isTank(e.type) || Math.abs(angDiff(e.h, want)) < 0.6 ? 1 : 0.3) * (e.dm ? vehMods(e, false).spd : 1);
   const inside = posBlocks(kind, e.x, e.y, who);                // stuck inside something: any way out will do
   let bx = e.x, by = e.y, bd = gdist(e.x, e.y, gx, gy) + (inside ? 1e6 : 0), moved = false;
   for (const a of [isTank(e.type) ? e.h : want, ...GRID_DIRS]) {
@@ -5825,7 +5937,7 @@ function suppress(x, y, r, amt) {
     if (gdist(x, y, e.x, e.y) < r + 50) e.supp = Math.min(1, (e.supp || 0) + amt);
   }
 }
-const suppMult = (e) => 1 + (e.supp || 0);
+const suppMult = (e) => (1 + (e.supp || 0)) * (e.dm ? 1 + 0.5 * e.dm.gun : 1);     // pinned down, or a damaged gun: slower to fire
 // Where the shooting is coming from, as this soldier sees it.
 function threatOf(e) {
   if (e.side >= 0) return e.tg && e.tg.ref.alive !== false ? { x: e.tg.x, y: e.tg.y } : null;
@@ -8148,7 +8260,9 @@ function step(dt) {
   if (player.dead > 0 || player.landing) sx = sy = 0;     // no control while shot down, or while setting down
   const mag = Math.hypot(sx, sy);
   if (mag > 0) hasFlown = true;
-  const kind = VEH[player.kind], wheeled = isGroundVeh(player.kind);
+  const kind0 = VEH[player.kind], wheeled = isGroundVeh(player.kind), vm = vehMods(player.vid >= 0 ? vehicles[player.vid] : null, kind0.air);
+  const kind = vm.spd === 1 && vm.turn === 1 && vm.accel === 1 ? kind0 : Object.assign({}, kind0, { speed: kind0.speed * vm.spd, turn: kind0.turn * vm.turn, accel: kind0.accel * vm.accel });   // damage slows you
+  if (kind.air && vm.wob > 0 && player.dead <= 0) heli.heading += Math.sin(time * 5.3) * 0.9 * vm.wob * dt;      // a shot-up tail rotor: she yaws about
   let top = kind.speed;
   if (kind.air && player.vid >= 0 && vehicles[player.vid] && vehicles[player.vid].alt < 18) top *= 0.15;      // still lifting off
   if (isWheels(player.kind)) top *= world.at(Math.round(mapX(heli.x, heli.y)), Math.round(mapY(heli.x, heli.y))) === T.ROAD ? 1.2 : 0.8;
